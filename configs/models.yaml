@@ -1,0 +1,148 @@
+# First-class embedding generation cards.
+#
+# Two named channel recipes exist because the manuscript and the released
+# JUMP_lite driver do not agree. Default `channel_recipe: jump_lite_as_run`
+# matches prep/aliby_featurize.py + cpg_upload/JUMP_LITE_README.md — that is
+# what produced the paper's embeddings. `paper_table_s3` matches Table S3.
+
+channel_recipe: jump_lite_as_run  # jump_lite_as_run | paper_table_s3
+
+zarr_channels: [AGP, DNA, ER, Mito, RNA]
+
+aggregation:
+  tile: median          # median | mean
+  site: median          # median of sites -> well
+  output_format: wide   # wide | jump_lite_long
+
+runtime:
+  batch_size: 16
+  device: auto          # auto | cpu | cuda | cuda:0
+  num_workers: 0
+  seed: 0
+
+models:
+  dinov2:
+    family: dinov2
+    checkpoint: facebookresearch/dinov2
+    architecture: dinov2_vits14
+    pretrained: true
+    tile_size: 224
+    jump_lite_as_run:
+      channels: [AGP, DNA, ER]
+    paper_table_s3:
+      channels: [DNA, AGP, Mito]   # Nuclei, AGP, Mito
+    preprocess:
+      - {op: standard}             # per-tile mean/std, not ImageNet stats
+    notes: >
+      JUMP_lite selected_channels=[0,1,2] on AGP,DNA,ER,Mito,RNA. Table S3
+      lists Nuclei,AGP,Mito. DINOv2 was trained on natural RGB images.
+
+  dinov2_random:
+    family: dinov2
+    checkpoint: facebookresearch/dinov2
+    architecture: dinov2_vits14
+    pretrained: false
+    tile_size: 224
+    jump_lite_as_run:
+      channels: [AGP, DNA, ER]
+    paper_table_s3:
+      channels: [DNA, AGP, Mito]
+    preprocess:
+      - {op: standard}
+    notes: Same architecture as dinov2 with randomized weights.
+
+  morphem:
+    family: morphem
+    checkpoint: CaicedoLab/MorphEm
+    tile_size: 224
+    bag_of_channels: true          # official MorphEm usage: 1ch forward, concat
+    jump_lite_as_run:
+      channels: [AGP, DNA, ER, Mito, RNA]
+    paper_table_s3:
+      channels: [DNA, AGP, Mito, RNA, ER]  # "CP"
+    preprocess:
+      - {op: standard}
+    notes: >
+      Pretrained on CHAMMI-75, which includes JUMP. Paper notes possible
+      train/test overlap with JUMP-lite.
+
+  openphenom:
+    family: openphenom
+    checkpoint: recursionpharma/OpenPhenom
+    tile_size: 256
+    jump_lite_as_run:
+      channels: [AGP, DNA, ER, Mito, RNA]
+    paper_table_s3:
+      channels: [DNA, AGP, Mito, RNA, ER]
+    preprocess:
+      - {op: clip_percentile, low: 0.5, high: 99.5}
+      - {op: rescale_minmax}
+      - {op: to_8bit}
+      - {op: standard}
+    notes: >
+      Trained on RxRx3 + JUMP. Paper notes possible train/test overlap.
+      Aliby sets minmax_8bit=True.
+
+  subcell:
+    family: subcell
+    checkpoint: mae_contrast_supcon_model
+    model_channels: rybg
+    tile_size: 448
+    jump_lite_as_run:
+      # Release README: Mito, ER, DNA, AGP. Aliby slices zarr [0,1,2,3]
+      # (AGP,DNA,ER,Mito) and passes model_channels=rybg for reorder.
+      channels: [AGP, DNA, ER, Mito]
+      model_channel_order: [Mito, ER, DNA, AGP]
+    paper_table_s3:
+      channels: [DNA, AGP, Mito, RNA]
+      model_channel_order: [DNA, AGP, Mito, RNA]
+    preprocess:
+      - {op: rescale_minmax}
+    notes: SubCell v1.0 MQ-only in the CPG embedding dump.
+
+  subcell_clip01:
+    family: subcell
+    checkpoint: mae_contrast_supcon_model
+    model_channels: rybg
+    tile_size: 448
+    jump_lite_as_run:
+      channels: [AGP, DNA, ER, Mito]
+      model_channel_order: [Mito, ER, DNA, AGP]
+    paper_table_s3:
+      channels: [DNA, AGP, Mito, RNA]
+      model_channel_order: [DNA, AGP, Mito, RNA]
+    preprocess:
+      - {op: clip_percentile, low: 0.5, high: 99.5}
+      - {op: rescale_minmax}
+
+  cell_count:
+    family: cell_count
+    notes: Two-feature baseline from object counts. Not an embedding model.
+
+  cellprofiler_paper:
+    family: cellprofiler
+    source: assembled_cpg          # 6–9 sites/well; NOT comparable to 4-site embeddings
+    comparison: unfair
+    notes: >
+      Paper JUMP-lite CellProfiler numbers use precomputed Cell Painting
+      Gallery profiles (S1.2.7), not cp_measure on the JUMP-lite 4-site cohort.
+
+  cellprofiler_fair:
+    family: cellprofiler
+    source: cp_measure_jump_lite   # same 4 sites + deposited Cellpose masks
+    comparison: fair
+    preprocess:
+      - {op: rescale_minmax}
+    notes: Recompute classical features on the exact JUMP-lite site set.
+
+  dummy:
+    family: dummy
+    tile_size: 224
+    embedding_dim: 32
+    jump_lite_as_run:
+      channels: [AGP, DNA, ER]
+    paper_table_s3:
+      channels: [DNA, AGP, Mito]
+    preprocess:
+      - {op: standard}
+    notes: Deterministic random features for pipeline tests. No weights.

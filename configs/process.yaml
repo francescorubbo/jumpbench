@@ -1,0 +1,69 @@
+# Profile post-processing. Paper swept 48 (DL) / 48 (CP) / 4 (cell_count)
+# configs per model×codec and picked the max balanced PA×PC (min-max rescaled).
+# Defaults below are the v11_lite DL center of that grid, not "the" winner.
+
+presets:
+  paper_dl_default:
+    drop_na_frac: 0.30
+    variance_freq_cut: 0.05
+    variance_unique_cut: 0.01
+    normalize: robustmad          # robustmad | standardize | none
+    fit_on_controls: true
+    batch_col: Metadata_Plate
+    control_col: Metadata_control_type
+    control_key: negcon
+    inverse_normal_transform: false
+    prune_correlated: true
+    corr_threshold: 0.90
+    pca_components: 128
+    tvn_efaar: true
+    tvn_epsilon: 0.5
+    robustmad_epsilon: 1.0e-18
+
+  paper_cp_default:
+    drop_na_frac: 0.30
+    variance_freq_cut: 0.05
+    variance_unique_cut: 0.01
+    normalize: robustmad
+    fit_on_controls: true
+    batch_col: Metadata_Plate
+    control_col: Metadata_control_type
+    control_key: negcon
+    inverse_normal_transform: true
+    prune_correlated: true
+    corr_threshold: 0.90
+    pca_components: 128
+    tvn_efaar: true
+    tvn_epsilon: 0.5
+    robustmad_epsilon: 1.0e-18
+
+  identity:
+    drop_na_frac: 1.0
+    variance_freq_cut: 0.0
+    variance_unique_cut: 0.0
+    normalize: none
+    fit_on_controls: false
+    prune_correlated: false
+    pca_components: null
+    tvn_efaar: false
+    inverse_normal_transform: false
+
+sweep_paper_dl_v11_lite:
+  normalize: [robustmad, standardize, none]
+  fit_on_controls: [true, false]
+  prune_correlated: [true, false]
+  tvn_epsilon: [0.05, 0.1, 0.2, 0.5, 1.0]
+  pca_components: [96, 128, 150, 170, 196, 256, 304]
+  # 3 × 2 × 2 × 5 × 7 = 420 listed in the supplement; the v11_lite hydra
+  # file actually advertises 48 configs via a reduced grid. We expose both.
+
+evaluation:
+  compound_col: Metadata_JCP2022
+  negcon_col: Metadata_negcon
+  batch_col: Metadata_Plate
+  group_col: Metadata_Group
+  distance: cosine
+  null_size: 10000
+  p_threshold: 0.05
+  min_compounds_per_target: 3
+  motive_k_pcts: [1, 5, 10]

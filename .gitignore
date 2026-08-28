@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Environments
+.venv/
+venv/
+.env
+.env.*
+
+# Local data (metadata/ and data/refchemdb/ are committed)
+data/images/
+data/embeddings/
+data/profiles/
+data/processed/
+data/results/
+data/paper_cp/
+data/annotations/
+*.zarr/
+*.tif
+*.tiff
+*.duckdb
+*.duckdb.wal
+
+# Upstream clone used while scaffolding this repo
+.vendor_jump_lite/
+
+# Logs / IDE
+logs/
+*.log
+.DS_Store
+.idea/
+.vscode/

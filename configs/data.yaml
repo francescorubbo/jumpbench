@@ -1,0 +1,38 @@
+# JUMP-lite / Cell Painting Gallery locations.
+# Compressed JUMP-lite images are scheduled for CPG promotion by mid-September 2026
+# (see afermg/JUMP_lite README). Original JUMP TIFFs are already public.
+
+cellpainting_gallery:
+  bucket: cellpainting-gallery
+  unsigned: true
+  jump_lite_root: cpg0016-jump/source_all
+  images:
+    zstd: images/2026_jump_lite_v1.0/images_compressed/zstd.zarr
+    hq: images/2026_jump_lite_v1.0/images_compressed/jpegxl_lossy_hq.zarr
+    mq: images/2026_jump_lite_v1.0/images_compressed/jpegxl_lossy_mq.zarr
+    d20: images/2026_jump_lite_v1.0/images_compressed/jpegxl_lossy_d20.zarr
+  embeddings: workspace_dl/embeddings
+  metadata: workspace/publication_data/2026_jump_lite/metadata/v1.0
+  masks_cell: workspace/publication_data/2026_jump_lite/segmentation/2026_jump_lite_v1.0/cell_masks
+  masks_nuclei: workspace/publication_data/2026_jump_lite/segmentation/2026_jump_lite_v1.0/nuclei_masks
+  paper_cellprofiler: cpg0016-jump-assembled/source_all/workspace/profiles_assembled/ALL/v1.0c/profiles.parquet
+  paper_cellprofiler_bytes: 13550356031
+
+channel_order: [AGP, DNA, ER, Mito, RNA]
+
+# Frozen cohort shipped in this repo (copied from JUMP_lite v1.0).
+local_metadata:
+  perturbation: metadata/jump_lite_v1_perturbation_metadata.parquet
+  refchem: metadata/jump_lite_v1_refchem_annotations.parquet
+  sites: metadata/jump_lite_v1_site_manifest.parquet
+  wells: metadata/jump_lite_v1_well_manifest.parquet
+  motive_allowlist: metadata/motive_eval_compounds.parquet
+  refchem_matched: data/refchemdb/refchemdb_conf_jump_matched.parquet
+
+layout:
+  images: data/images
+  embeddings: data/embeddings
+  profiles: data/profiles
+  processed: data/processed
+  results: data/results
+  paper_cp: data/paper_cp/profiles.parquet
