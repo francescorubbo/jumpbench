@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import polars as pl
 
@@ -24,12 +23,12 @@ PAPER_HEADLINE = {
 UNFAIR_REASONS = {
     "paper_as_published": (
         "CellProfiler features come from Cell Painting Gallery assembled "
-        "profiles (6–9 sites/well). Embeddings use the JUMP-lite 4-site cohort "
-        "(S1.2.7). MorphEM and OpenPhenom were pretrained on JUMP."
+        "profiles (6–9 sites/well). The paper's embeddings used the JUMP-lite "
+        "4-site cohort (S1.2.7). MorphEM and OpenPhenom were pretrained on JUMP."
     ),
     "wells_aligned_only": (
         "Well universe is JUMP-lite, but CellProfiler values are still 6–9-site "
-        "aggregates. Embeddings remain 4-site."
+        "aggregates while embeddings remain 4-site."
     ),
 }
 

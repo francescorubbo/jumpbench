@@ -1,10 +1,12 @@
-# JUMP-lite / Cell Painting Gallery locations.
-# Compressed JUMP-lite images are scheduled for CPG promotion by mid-September 2026
-# (see afermg/JUMP_lite README). Original JUMP TIFFs are already public.
+# Original JUMP sources (public, anonymous S3). Default persist format is
+# JPEG XL MQ (paper distance=3.0). JUMP-lite zarrs are a compressed derivative
+# and are not required.
 
 cellpainting_gallery:
   bucket: cellpainting-gallery
   unsigned: true
+  jump_dataset: cpg0016-jump
+  load_data_csv: cpg0016-jump/{source}/workspace/load_data_csv/{batch}/{plate}/load_data_with_illum.csv
   jump_lite_root: cpg0016-jump/source_all
   images:
     zstd: images/2026_jump_lite_v1.0/images_compressed/zstd.zarr
@@ -19,6 +21,12 @@ cellpainting_gallery:
   paper_cellprofiler_bytes: 13550356031
 
 channel_order: [AGP, DNA, ER, Mito, RNA]
+
+# Default image cohort: every Orig FOV on JUMP-lite wells (typically 6–9).
+# jump_lite = frozen v1.0 4-site sample used for the paper's embeddings.
+site_set: all
+# Persist codec for download-images: jpegxl_mq | jpegxl_hq | jpeg | raw
+persist_codec: jpegxl_mq
 
 # Frozen cohort shipped in this repo (copied from JUMP_lite v1.0).
 local_metadata:
@@ -36,3 +44,4 @@ layout:
   processed: data/processed
   results: data/results
   paper_cp: data/paper_cp/profiles.parquet
+  manifest: data/manifest

@@ -1,9 +1,9 @@
 """CellProfiler profile loaders.
 
-Two sources exist and they are not interchangeable:
-
-- paper / assembled CPG profiles: 6–9 sites per well (S1.2.7). Unfair vs 4-site embeddings.
-- fair / cp_measure on JUMP-lite sites: same 4 sites as the embedding models.
+Assembled CPG profiles average 6–9 sites/well. That is only unfair against
+embeddings if those embeddings were restricted to the JUMP-lite 4-site sample.
+``jumpbench download-images --sites all`` (the default) matches the 6–9-site
+support; ``--sites jump_lite`` reproduces the paper's 4-site embedding cohort.
 """
 
 from __future__ import annotations
@@ -24,9 +24,9 @@ def restrict_to_jump_lite_wells(
 ) -> pl.DataFrame:
     """Inner-join profiles onto the frozen JUMP-lite well set.
 
-    This still does **not** make assembled CellProfiler features fair: the
-    feature values remain aggregates of 6–9 sites. It only aligns the well
-    universe.
+    This still does **not** make assembled CellProfiler features identical to
+    ``cp_measure`` on the same pixels. It only aligns the well universe. Site
+    support matches if embeddings were generated with ``--sites all``.
     """
     wells = wells if wells is not None else load_perturbations()
     left = profiles
@@ -54,4 +54,4 @@ def load_paper_cellprofiler(path: str | Path, align_wells: bool = True) -> pl.Da
 
 
 def comparison_is_fair(mode: str) -> bool:
-    return mode in {"fair_same_sites", "cp_measure_jump_lite"}
+    return mode in {"fair_same_sites", "fair_all_sites", "cp_measure_jump_lite"}

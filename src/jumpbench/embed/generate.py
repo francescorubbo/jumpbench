@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import numpy as np
 import polars as pl
 from tqdm import tqdm
 
 from jumpbench.config import channel_indices, resolve_model
-from jumpbench.data.images import list_local_sites, load_site_tiffs
+from jumpbench.data.images import list_local_sites, load_site_images
 from jumpbench.data.metadata import parse_site_key, well_id_from_site_key
 from jumpbench.embed.backends import build_backend
 from jumpbench.embed.preprocess import apply_preprocess
@@ -86,7 +87,7 @@ def generate_embeddings(
     output_dir: Path,
     site_keys: Iterable[str] | None = None,
     models_cfg: dict[str, Any] | None = None,
-    codec: str = "raw_tiff",
+    codec: str = "jpegxl_mq",
 ) -> Path:
     card = resolve_model(model, models_cfg)
     backend = build_backend(card)
@@ -100,7 +101,7 @@ def generate_embeddings(
 
     frames = []
     for key in tqdm(keys, desc=f"embed:{card['name']}"):
-        image = load_site_tiffs(images_root, key)
+        image = load_site_images(images_root, key)
         feats, coords = embed_site(image, card, backend)
         fmt = card.get("aggregation", {}).get("output_format", "wide")
         if fmt == "jump_lite_long":
@@ -125,6 +126,8 @@ def generate_embeddings(
             "architecture": card.get("architecture"),
             "pretrained": card.get("pretrained"),
             "n_sites": len(keys),
+            "images_root": str(images_root),
+            "persist_codec": codec,
             "output": str(out),
             "comparison_note": card.get("notes"),
         },

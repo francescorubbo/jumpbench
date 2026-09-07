@@ -92,6 +92,7 @@ def test_median_tile_then_site_aggregation():
 
 def test_fairness_flags():
     assert comparison_is_fair("fair_same_sites")
+    assert comparison_is_fair("fair_all_sites")
     assert not comparison_is_fair("paper_as_published")
     assert not comparison_is_fair("wells_aligned_only")
 

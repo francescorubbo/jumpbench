@@ -1,0 +1,23 @@
+{
+  "created_at": "2026-08-28T16:01:03.200550+00:00",
+  "model": "dummy",
+  "channel_recipe": "jump_lite_as_run",
+  "channels": [
+    "AGP",
+    "DNA",
+    "ER"
+  ],
+  "model_channel_order": null,
+  "tile_size": 64,
+  "preprocess": [
+    {
+      "op": "standard"
+    }
+  ],
+  "checkpoint": null,
+  "architecture": null,
+  "pretrained": null,
+  "n_sites": 4,
+  "output": "/Users/francesco-personal/consulting/embeddings_benchmark/data/smoke/embeddings/dummy/synth/site_embeddings.parquet",
+  "comparison_note": "Deterministic random features for pipeline tests. No weights."
+}

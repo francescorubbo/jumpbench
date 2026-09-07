@@ -8,8 +8,10 @@ from pathlib import Path
 import polars as pl
 
 from jumpbench.config import apply_overrides, load_models_config, resolve_model
+from jumpbench.data.compress import CODECS, DEFAULT_CODEC
 from jumpbench.data.download import download_paper_cellprofiler, download_tiffs
-from jumpbench.data.images import default_images_root
+from jumpbench.data.images import default_images_root, migrate_flat_images
+from jumpbench.data.index import build_tiff_index, site_set_summary, write_tiff_index
 from jumpbench.embed.generate import generate_embeddings
 from jumpbench.eval.compare import compare_runs
 from jumpbench.eval.metrics import evaluate_path
@@ -41,16 +43,106 @@ def cmd_models(args: argparse.Namespace) -> int:
     return 0
 
 
+def _site_filters(args: argparse.Namespace) -> dict:
+    site_set = getattr(args, "sites", "all")
+    explicit_subset = bool(args.site or args.source or args.plate)
+    full = getattr(args, "full_cohort", False) or getattr(args, "all", False)
+    if full:
+        max_sites = None
+        max_wells = None
+    else:
+        max_sites = args.max_sites
+        max_wells = getattr(args, "max_wells", None)
+        if max_sites is None and max_wells is None and not explicit_subset:
+            if site_set == "jump_lite":
+                max_sites = 32
+            else:
+                max_wells = 4
+        elif (
+            site_set == "all"
+            and max_wells is None
+            and max_sites is not None
+            and not explicit_subset
+        ):
+            max_wells = max_sites
+    return {
+        "site_set": site_set,
+        "max_sites": max_sites,
+        "max_wells": max_wells,
+        "sources": args.source or None,
+        "site_keys": args.site or None,
+        "plates": getattr(args, "plate", None) or None,
+    }
+
+
+def _print_index_stats(index: pl.DataFrame, path: Path | None = None) -> None:
+    stats = site_set_summary(index)
+    extra = f" → {path}" if path else ""
+    print(
+        f"{stats['site_set']}: {stats['sites']} sites / {stats['wells']} wells "
+        f"(FOVs per well min/median/max "
+        f"{stats['sites_per_well_min']}/{stats['sites_per_well_median']:.0f}/"
+        f"{stats['sites_per_well_max']}), {stats['files']} channel URIs{extra}"
+    )
+
+
+def cmd_index_images(args: argparse.Namespace) -> int:
+    index = build_tiff_index(**_site_filters(args))
+    path = write_tiff_index(index, args.output)
+    _print_index_stats(index, path)
+    if args.show:
+        print(index.head(args.show).select(["Metadata_Site_Key", "channel", "uri"]))
+    return 0
+
+
 def cmd_download_images(args: argparse.Namespace) -> int:
-    paths = download_tiffs(dest=args.dest, max_sites=args.max_sites, site_keys=args.site)
-    print(f"Downloaded {len(paths)} files to {args.dest or default_images_root()}")
+    filters = _site_filters(args)
+    if filters["max_sites"] is None and filters["max_wells"] is None:
+        if args.codec == "raw":
+            print(
+                "No well/site cap with --codec raw: JUMP-lite wells × all Orig FOVs "
+                "is several times the paper's ~10 TB 4-site TIFF cohort.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "No well/site cap: S3 still transfers ~10–20 TB of Orig TIFF, but "
+                f"--codec {args.codec} persists ~1–3% of that on disk. "
+                "Pass --max-wells N for a subset.",
+                file=sys.stderr,
+            )
+    summary = download_tiffs(
+        dest=args.dest,
+        jobs=args.jobs,
+        dry_run=args.dry_run,
+        yes=args.yes,
+        index_out=args.index,
+        codec=args.codec,
+        **filters,
+    )
+    if args.dry_run:
+        return 0
+    print(f"URI index: {summary['index']}")
+    return 0
+
+
+def cmd_migrate_images(args: argparse.Namespace) -> int:
+    dest = Path(args.dest) if args.dest else default_images_root()
+    n = migrate_flat_images(dest)
+    print(f"Nested {n} files under {dest}/{{source}}/{{batch}}/{{plate}}/{{well}}/")
     return 0
 
 
 def cmd_download_paper_cp(args: argparse.Namespace) -> int:
-    path = download_paper_cellprofiler(args.dest)
-    print(f"Paper CellProfiler profiles: {path}")
-    print("These are 6–9 sites/well. Do not treat as a fair comparator to 4-site embeddings.")
+    result = download_paper_cellprofiler(args.dest, dry_run=args.dry_run)
+    if args.dry_run:
+        print(json.dumps(result, indent=2))
+        return 0
+    print(f"Paper CellProfiler profiles: {result}")
+    print(
+        "Assembled CellProfiler is 6–9 sites/well. "
+        "Match that with --sites all (default) on embeddings."
+    )
     return 0
 
 
@@ -151,21 +243,118 @@ def build_parser() -> argparse.ArgumentParser:
     _add_overrides(m)
     m.set_defaults(func=cmd_models)
 
-    d = sub.add_parser("download-images", help="Download original JUMP TIFFs for a site subset")
+    def _add_site_filters(parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--sites",
+            choices=("all", "jump_lite"),
+            default="all",
+            help="all = every Orig FOV on JUMP-lite wells (default, 6–9 typical). "
+            "jump_lite = paper's frozen 4-site sample.",
+        )
+        parser.add_argument(
+            "--max-wells",
+            type=int,
+            default=None,
+            help="Cap JUMP-lite wells (keeps every FOV of those wells). "
+            "Default 4 when --sites all and no other filter.",
+        )
+        parser.add_argument(
+            "--max-sites",
+            type=int,
+            default=None,
+            help="Cap FOVs after site selection. Default 32 only for --sites jump_lite.",
+        )
+        parser.add_argument(
+            "--all",
+            dest="full_cohort",
+            action="store_true",
+            help="No well/site cap (full JUMP-lite well set; huge).",
+        )
+        parser.add_argument(
+            "--site",
+            action="append",
+            default=[],
+            help="Metadata_Site_Key (repeatable)",
+        )
+        parser.add_argument(
+            "--source",
+            action="append",
+            default=[],
+            help="JUMP source, e.g. source_13 (repeatable)",
+        )
+        parser.add_argument(
+            "--plate",
+            action="append",
+            default=[],
+            help="Metadata_Plate (repeatable)",
+        )
+
+    idx = sub.add_parser(
+        "index-images",
+        help="Resolve Orig TIFF URIs from JUMP load_data CSVs (no pixel download)",
+    )
+    _add_site_filters(idx)
+    idx.add_argument("--output", type=Path)
+    idx.add_argument("--show", type=int, default=0, help="Print this many index rows")
+    idx.set_defaults(func=cmd_index_images)
+
+    d = sub.add_parser(
+        "download-images",
+        help="Stream Orig JUMP TIFFs from S3; persist JPEG XL by default",
+    )
+    _add_site_filters(d)
     d.add_argument("--dest", type=Path)
-    d.add_argument("--max-sites", type=int, default=32)
-    d.add_argument("--site", action="append", default=[])
+    d.add_argument(
+        "--jobs",
+        type=int,
+        default=32,
+        help="Parallel GET workers. Orig TIFFs are ~2.7 MiB; more jobs hide us-east-1 RTT.",
+    )
+    d.add_argument(
+        "--codec",
+        choices=tuple(CODECS),
+        default=DEFAULT_CODEC,
+        help="On-disk format. jpegxl_mq is paper MQ (~100× vs TIFF). "
+        "raw writes uncompressed TIFFs (multi-TB).",
+    )
+    d.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Index + size estimate only; do not transfer pixels",
+    )
+    d.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="Do not prompt for confirmation",
+    )
+    d.add_argument("--index", type=Path, help="Where to write tiff_uris.parquet")
     d.set_defaults(func=cmd_download_images)
 
-    c = sub.add_parser("download-paper-cp", help="Download assembled CellProfiler profiles (unfair baseline)")
+    nest = sub.add_parser(
+        "migrate-images",
+        help="Move flat {site}__{channel}.* files into source/batch/plate/well/",
+    )
+    nest.add_argument("--dest", type=Path)
+    nest.set_defaults(func=cmd_migrate_images)
+
+    c = sub.add_parser(
+        "download-paper-cp",
+        help="Download assembled CellProfiler profiles (unfair baseline)",
+    )
     c.add_argument("--dest", type=Path)
+    c.add_argument("--dry-run", action="store_true")
     c.set_defaults(func=cmd_download_paper_cp)
 
     e = sub.add_parser("embed", help="Generate per-site embeddings with an explicit model card")
     e.add_argument("--model", required=True)
     e.add_argument("--images", default=str(default_images_root()))
     e.add_argument("--output", default=str(resolve("data/embeddings")))
-    e.add_argument("--codec", default="raw_tiff")
+    e.add_argument(
+        "--codec",
+        default=DEFAULT_CODEC,
+        help="Label for the embedding output folder (match download --codec)",
+    )
     e.add_argument("--site", action="append", default=[])
     _add_overrides(e)
     e.set_defaults(func=cmd_embed)

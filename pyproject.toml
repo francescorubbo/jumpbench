@@ -18,12 +18,12 @@ dependencies = [
     "boto3>=1.34",
     "tqdm>=4.66",
     "tifffile>=2024.2",
+    "imagecodecs>=2024.1",
 ]
 
 [project.optional-dependencies]
 images = [
     "zarr>=2.18",
-    "imagecodecs>=2024.1",
     "numcodecs>=0.13",
 ]
 embed = [
