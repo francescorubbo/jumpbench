@@ -14,10 +14,10 @@ from jumpbench.data.images import default_images_root, migrate_flat_images
 from jumpbench.data.index import build_tiff_index, site_set_summary, write_tiff_index
 from jumpbench.embed.generate import generate_embeddings
 from jumpbench.eval.compare import compare_runs
-from jumpbench.eval.metrics import evaluate_path
+from jumpbench.eval.metrics import PAPER_PA_CRISPR, evaluate_path
 from jumpbench.paths import repo_root, resolve
 from jumpbench.profiles.aggregate import aggregate_path
-from jumpbench.profiles.cellprofiler import load_paper_cellprofiler
+from jumpbench.profiles.cellprofiler import align_paper_cellprofiler
 from jumpbench.profiles.normalize import process_path
 
 
@@ -173,9 +173,23 @@ def cmd_process(args: argparse.Namespace) -> int:
 
 
 def cmd_evaluate(args: argparse.Namespace) -> int:
-    result = evaluate_path(Path(args.input), tasks=tuple(args.tasks.split(",")))
+    kwargs: dict = {}
+    tasks = tuple(part.strip() for part in args.tasks.split(",") if part.strip())
+    if getattr(args, "subset", None) == "crispr":
+        kwargs["group_col"] = None
+        kwargs["paper_ref"] = "crispr"
+        if args.tasks == "pa,pc":
+            tasks = ("pa",)
+    result = evaluate_path(Path(args.input), tasks=tasks, **kwargs)
     printable = {k: v for k, v in result.items() if not k.startswith("_")}
     print(json.dumps(printable, indent=2, default=str))
+    pa = printable.get("pa") or {}
+    if pa.get("paper_nap") is not None:
+        print(
+            f"CRISPR PA NAP {pa['mean_nap']:.4f} vs paper {PAPER_PA_CRISPR:.3f} "
+            f"(delta {pa['delta_vs_paper']:+.4f})",
+            file=sys.stderr,
+        )
     if args.output:
         Path(args.output).write_text(json.dumps(printable, indent=2, default=str) + "\n")
     return 0
@@ -198,10 +212,10 @@ def cmd_compare(args: argparse.Namespace) -> int:
 
 
 def cmd_paper_cp_align(args: argparse.Namespace) -> int:
-    df = load_paper_cellprofiler(args.input, align_wells=True)
-    Path(args.output).parent.mkdir(parents=True, exist_ok=True)
-    df.write_parquet(args.output)
-    print(f"{df.height} wells written to {args.output} (still 6–9-site CellProfiler values)")
+    path = align_paper_cellprofiler(args.input, args.output, subset=args.subset)
+    n = pl.scan_parquet(path).select(pl.len()).collect().item()
+    subset = args.subset or "all"
+    print(f"{n} wells written to {path} ({subset}; still 6–9-site CellProfiler values)")
     return 0
 
 
@@ -378,6 +392,12 @@ def build_parser() -> argparse.ArgumentParser:
     ev = sub.add_parser("evaluate", help="Phenotypic activity / consistency")
     ev.add_argument("--input", required=True)
     ev.add_argument("--tasks", default="pa,pc")
+    ev.add_argument(
+        "--subset",
+        choices=("all", "crispr"),
+        default="all",
+        help="crispr = score PA against the paper CRISPR NAP (0.815); skip group split",
+    )
     ev.add_argument("--output")
     ev.set_defaults(func=cmd_evaluate)
 
@@ -390,6 +410,12 @@ def build_parser() -> argparse.ArgumentParser:
     al = sub.add_parser("align-paper-cp", help="Inner-join assembled CP onto JUMP-lite wells")
     al.add_argument("--input", required=True)
     al.add_argument("--output", required=True)
+    al.add_argument(
+        "--subset",
+        choices=("all", "crispr"),
+        default="all",
+        help="crispr = CRISPR wells plus plate-matched negcons (cheaper PA check)",
+    )
     al.set_defaults(func=cmd_paper_cp_align)
 
     sm = sub.add_parser("smoke", help="Synthetic-image dummy pipeline")

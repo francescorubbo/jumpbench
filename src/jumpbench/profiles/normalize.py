@@ -64,8 +64,9 @@ def filter_low_variance(
 
 
 def robustmad(X: np.ndarray, ref: np.ndarray, epsilon: float = 1e-18) -> np.ndarray:
+    """JUMP_lite CPU RobustMAD: raw MAD (scipy default scale=1), not Gaussian-scaled."""
     median = np.median(ref, axis=0)
-    mad = median_abs_deviation(ref, axis=0, scale="normal")
+    mad = median_abs_deviation(ref, axis=0, scale=1.0)
     mad = np.where(mad == 0, epsilon, mad)
     return (X - median) / (mad + epsilon)
 
@@ -77,30 +78,112 @@ def standardize(X: np.ndarray, ref: np.ndarray, epsilon: float = 1e-18) -> np.nd
     return (X - mean) / (std + epsilon)
 
 
+def _apply_by_batch(
+    X: np.ndarray,
+    batch_labels: np.ndarray,
+    control_mask: np.ndarray,
+    fit_on_controls: bool,
+    transform,
+    epsilon: float,
+) -> np.ndarray:
+    out = np.empty_like(X, dtype=np.float64)
+    for batch in np.unique(batch_labels):
+        mask = batch_labels == batch
+        if fit_on_controls:
+            ref = X[mask & control_mask]
+            if len(ref) == 0:
+                ref = X[mask]
+        else:
+            ref = X[mask]
+        out[mask] = transform(X[mask], ref, epsilon)
+    return out
+
+
 def inverse_normal_transform(X: np.ndarray) -> np.ndarray:
     out = np.empty_like(X, dtype=np.float64)
     for i in range(X.shape[1]):
         col = X[:, i]
-        ranks = rankdata(col, method="average")
-        out[:, i] = norm.ppf((ranks - 0.5) / col.size)
+        finite = np.isfinite(col)
+        if not finite.any():
+            out[:, i] = col
+            continue
+        ranks = np.empty(col.size, dtype=np.float64)
+        ranks[finite] = rankdata(col[finite], method="average")
+        ranks[~finite] = np.nan
+        n = int(finite.sum())
+        transformed = np.full(col.size, np.nan, dtype=np.float64)
+        transformed[finite] = norm.ppf((ranks[finite] - 0.5) / n)
+        out[:, i] = transformed
     return out
 
 
+def drop_outliers(
+    X: np.ndarray,
+    names: list[str],
+    cutoff: float = 100.0,
+) -> tuple[np.ndarray, list[str]]:
+    """Drop features whose |z-score| exceeds cutoff (JUMP_lite drop_outliers)."""
+    if X.size == 0 or cutoff is None:
+        return X, names
+    mean = np.nanmean(X, axis=0)
+    std = np.nanstd(X, axis=0)
+    std = np.where(std == 0, 1e-8, std)
+    z = (X - mean) / (std + 1e-8)
+    max_abs = np.nanmax(np.abs(z), axis=0)
+    max_abs = np.where(np.isfinite(max_abs), max_abs, np.inf)
+    keep = max_abs <= cutoff
+    if not keep.any():
+        return X, names
+    return X[:, keep], [n for n, k in zip(names, keep, strict=True) if k]
+
+
+def _greedy_independent_set(adj: np.ndarray) -> list[int]:
+    """Return indices of redundant nodes (not in the min-degree independent set)."""
+    graph = adj.copy()
+    np.fill_diagonal(graph, 0)
+    remaining = set(range(graph.shape[0]))
+    independent: list[int] = []
+    while remaining:
+        degrees = graph.sum(axis=1)
+        min_degree_node = min(remaining, key=lambda node: degrees[node])
+        independent.append(min_degree_node)
+        neighbors = set(np.where(graph[min_degree_node] == 1)[0])
+        remaining -= neighbors | {min_degree_node}
+        drop = neighbors | {min_degree_node}
+        for node in drop:
+            graph[node, :] = 0
+            graph[:, node] = 0
+    redundant = set(range(adj.shape[0])) - set(independent)
+    return list(redundant)
+
+
 def prune_correlated(
-    X: np.ndarray, names: list[str], threshold: float
+    X: np.ndarray,
+    names: list[str],
+    threshold: float,
+    method: str = "greedy",
 ) -> tuple[np.ndarray, list[str]]:
     if X.shape[1] <= 1:
         return X, names
     corr = np.corrcoef(X, rowvar=False)
+    corr = np.nan_to_num(corr, nan=0.0, posinf=0.0, neginf=0.0)
     abs_corr = np.abs(corr)
     np.fill_diagonal(abs_corr, 0)
-    keep = np.ones(X.shape[1], dtype=bool)
-    order = np.argsort(-np.nanvar(X, axis=0))
-    for i in order:
-        if not keep[i]:
-            continue
-        keep &= ~((abs_corr[i] > threshold) & (np.arange(X.shape[1]) > i))
-        keep[i] = True
+    if method == "independent_set":
+        adj = abs_corr > threshold
+        redundant = set(_greedy_independent_set(adj.astype(np.int8)))
+        keep = [i not in redundant for i in range(X.shape[1])]
+    else:
+        keep_mask = np.ones(X.shape[1], dtype=bool)
+        order = np.argsort(-np.nanvar(X, axis=0))
+        for i in order:
+            if not keep_mask[i]:
+                continue
+            keep_mask &= ~((abs_corr[i] > threshold) & (np.arange(X.shape[1]) > i))
+            keep_mask[i] = True
+        keep = keep_mask.tolist()
+    if not any(keep):
+        return X, names
     return X[:, keep], [n for n, k in zip(names, keep, strict=True) if k]
 
 
@@ -110,7 +193,7 @@ def tvn_efaar(
     batch_labels: np.ndarray,
     epsilon: float = 0.5,
 ) -> np.ndarray:
-    """CORAL: whiten each plate on controls, recolor to pooled-control covariance."""
+    """CORAL: whiten each batch on controls, recolor to pooled-control covariance."""
     controls = X[control_mask]
     n_features = X.shape[1]
     target = np.cov(controls, rowvar=False) + epsilon * np.eye(n_features)
@@ -127,6 +210,44 @@ def tvn_efaar(
             source_inv_sqrt = pinvh(fractional_matrix_power(source, 0.5).real)
         out[batch_mask] = out[batch_mask] @ source_inv_sqrt @ target_sqrt
     return out.real
+
+
+def tvn_efaar_full(
+    X: np.ndarray,
+    control_mask: np.ndarray,
+    batch_labels: np.ndarray,
+    n_components: int = 128,
+    epsilon: float = 0.5,
+    dim_ratio_threshold: float = 2.5,
+) -> tuple[np.ndarray, list[str]]:
+    """JUMP_lite TVN-EFAAR: scale → PCA on controls → per-batch scale → CORAL."""
+    X = standardize(X, X[control_mask])
+    n_controls = int(control_mask.sum())
+    n_comp = min(int(n_components), X.shape[1], max(1, n_controls - 1), X.shape[0] - 1)
+    min_controls = n_controls
+    counts = []
+    for batch in np.unique(batch_labels):
+        n_c = int((control_mask & (batch_labels == batch)).sum())
+        if n_c >= 2:
+            counts.append(n_c)
+    if counts:
+        min_controls = min(counts)
+    if min_controls >= 2 and n_comp / min_controls > dim_ratio_threshold:
+        n_comp = max(1, int(min_controls * dim_ratio_threshold))
+    pca = PCA(n_components=n_comp, svd_solver="full")
+    pca.fit(X[control_mask])
+    X = pca.transform(X)
+    scaled = np.empty_like(X, dtype=np.float64)
+    for batch in np.unique(batch_labels):
+        mask = batch_labels == batch
+        ctrl = mask & control_mask
+        if int(ctrl.sum()) >= 2:
+            scaled[mask] = standardize(X[mask], X[ctrl])
+        else:
+            scaled[mask] = X[mask]
+    X = tvn_efaar(scaled, control_mask, batch_labels, epsilon)
+    names = [f"PC_{i + 1:03d}" for i in range(X.shape[1])]
+    return X, names
 
 
 def _control_mask(df: pl.DataFrame, col: str, key: str) -> np.ndarray:
@@ -174,7 +295,8 @@ def process_profiles(
     names = feature_columns(work)
     X = _as_numpy(work, names)
     X, names = drop_high_na(X, names, float(cfg.get("drop_na_frac", 0.3)))
-    X = np.where(np.isfinite(X), X, np.nanmedian(X, axis=0))
+    col_medians = np.nanmedian(X, axis=0)
+    X = np.where(np.isfinite(X), X, col_medians)
     X, names = filter_low_variance(
         X,
         names,
@@ -186,29 +308,66 @@ def process_profiles(
         cfg.get("control_col", "Metadata_control_type"),
         cfg.get("control_key", "negcon"),
     )
-    ref = X[controls] if cfg.get("fit_on_controls", True) and controls.any() else X
+    batch_col = cfg.get("batch_col")
+    batches = (
+        work[batch_col].cast(pl.Utf8).to_numpy()
+        if batch_col and batch_col in work.columns
+        else None
+    )
     method = cfg.get("normalize", "robustmad")
+    fit_on_controls = bool(cfg.get("fit_on_controls", True))
+    epsilon = float(cfg.get("robustmad_epsilon", 1e-18))
     if method == "robustmad":
-        X = robustmad(X, ref, float(cfg.get("robustmad_epsilon", 1e-18)))
+        transform = robustmad
     elif method == "standardize":
-        X = standardize(X, ref)
+        transform = standardize
     elif method in (None, "none"):
-        pass
+        transform = None
     else:
         raise ValueError(method)
+    if transform is not None:
+        if batches is not None:
+            X = _apply_by_batch(X, batches, controls, fit_on_controls, transform, epsilon)
+        else:
+            ref = X[controls] if fit_on_controls and controls.any() else X
+            X = transform(X, ref, epsilon)
+    outlier_cutoff = cfg.get("outlier_cutoff")
+    if outlier_cutoff is not None:
+        X, names = drop_outliers(X, names, float(outlier_cutoff))
     if cfg.get("inverse_normal_transform"):
         X = inverse_normal_transform(X)
+        col_medians = np.nanmedian(X, axis=0)
+        X = np.where(np.isfinite(X), X, col_medians)
     if cfg.get("prune_correlated"):
-        X, names = prune_correlated(X, names, float(cfg.get("corr_threshold", 0.9)))
+        X, names = prune_correlated(
+            X,
+            names,
+            float(cfg.get("corr_threshold", 0.9)),
+            method=str(cfg.get("corr_prune_method", "greedy")),
+        )
     n_comp = cfg.get("pca_components")
     if n_comp:
         n_comp = min(int(n_comp), X.shape[0] - 1, X.shape[1])
         pca = PCA(n_components=n_comp, svd_solver="full")
         X = pca.fit_transform(X)
         names = [f"PC_{i + 1:03d}" for i in range(X.shape[1])]
-    if cfg.get("tvn_efaar") and cfg.get("batch_col") in work.columns:
-        batches = work[cfg["batch_col"]].cast(pl.Utf8).to_numpy()
-        X = tvn_efaar(X, controls, batches, float(cfg.get("tvn_epsilon", 0.5)))
+    if cfg.get("tvn_efaar"):
+        tvn_batch_col = cfg.get("tvn_batch_col") or batch_col
+        if tvn_batch_col and tvn_batch_col in work.columns:
+            tvn_batches = work[tvn_batch_col].cast(pl.Utf8).to_numpy()
+            tvn_n = cfg.get("tvn_n_components")
+            tvn_eps = float(cfg.get("tvn_epsilon", 0.5))
+            if tvn_n and not n_comp:
+                X, names = tvn_efaar_full(
+                    X,
+                    controls,
+                    tvn_batches,
+                    n_components=int(tvn_n),
+                    epsilon=tvn_eps,
+                    dim_ratio_threshold=float(cfg.get("tvn_dim_ratio_threshold", 2.5)),
+                )
+            else:
+                X = tvn_efaar(X, controls, tvn_batches, tvn_eps)
     meta_cols = [c for c in work.columns if c.startswith(META_PREFIX)]
     feat_df = pl.DataFrame({n: X[:, i] for i, n in enumerate(names)})
     return pl.concat([work.select(meta_cols), feat_df], how="horizontal")

@@ -77,12 +77,17 @@ available as a control.
 
 CPU reimplementation of the variance-first recipe (`src/norm_3`): drop NA >
 30%, low-variance filter, RobustMAD (or z-score) fit on negative controls per
-plate, optional inverse-normal (CellProfiler only), greedy correlation prune,
-PCA, CORAL TVN-EFAAR. Paper swept 48 DL configs and kept the max balanced
-PA×PC. This repo defaults to the grid center (`configs/process.yaml`) so a
-single run is interpretable; sweep knobs are listed in that file.
+plate, optional inverse-normal (CellProfiler only), correlation prune
+(independent-set for CP, greedy for DL), then TVN-EFAAR. For CellProfiler,
+PCA is fit on controls *inside* TVN-EFAAR (JUMP_lite v11-lite CP). Paper swept
+48 configs; this repo defaults to the grid center (`configs/process.yaml`).
 
 GPU RAPIDS numbers from JUMP_lite will not be bit-identical.
+
+The first CP check is CRISPR-only PA (`jumpbench align-paper-cp --subset crispr`
+then `process --preset paper_cp_default` then `evaluate --tasks pa --subset crispr`)
+against the published CRISPR NAP of 0.815. That run fits processing on CRISPR
+wells only; the paper fit on all JUMP-lite wells then scored CRISPR.
 
 ## Metrics
 

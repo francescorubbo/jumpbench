@@ -9,6 +9,8 @@ import polars as pl
 
 from jumpbench.profiles.normalize import feature_columns
 
+PAPER_PA_CRISPR = 0.815
+
 
 def _to_pandas(df: pl.DataFrame) -> pd.DataFrame:
     return df.to_pandas()
@@ -150,13 +152,20 @@ def evaluate_profiles(
     tasks: tuple[str, ...] = ("pa", "pc"),
     **kwargs: Any,
 ) -> dict[str, Any]:
+    paper_ref = kwargs.pop("paper_ref", None)
     out: dict[str, Any] = {}
     if "pa" in tasks:
-        pa = phenotypic_activity(
-            df, **{k: v for k, v in kwargs.items() if k in phenotypic_activity.__code__.co_varnames}
-        )
+        pa_kwargs = {
+            k: v for k, v in kwargs.items() if k in phenotypic_activity.__code__.co_varnames
+        }
+        pa = phenotypic_activity(df, **pa_kwargs)
         out["pa"] = {k: v for k, v in pa.items() if k != "activity_map"}
         out["_pa_map"] = pa.get("activity_map")
+        if paper_ref in {"crispr", "crispr_pa"}:
+            mean_nap = float(out["pa"]["mean_nap"])
+            out["pa"]["subset"] = "crispr"
+            out["pa"]["paper_nap"] = PAPER_PA_CRISPR
+            out["pa"]["delta_vs_paper"] = mean_nap - PAPER_PA_CRISPR
     if "pc" in tasks:
         try:
             pc = phenotypic_consistency(df)

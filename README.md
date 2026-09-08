@@ -98,19 +98,30 @@ jumpbench evaluate --tasks pa,pc
 jumpbench compare --mode fair_all_sites --profile morphem=... --profile cellprofiler_paper=...
 ```
 
-Paper-as-published CellProfiler (unfair, for matching their table):
+Paper-as-published CellProfiler, CRISPR phenotypic activity only (unfair site
+support; processing is also CRISPR-only, unlike the paper which fit prune/PCA/TVN
+on all JUMP-lite wells):
 
 ```bash
 jumpbench download-paper-cp          # ~13.5 GB assembled CPG profiles
 jumpbench align-paper-cp --input data/paper_cp/profiles.parquet \
-  --output data/profiles/cellprofiler_paper.parquet
-jumpbench compare --mode paper_as_published \
-  --profile cellprofiler_paper=data/profiles/cellprofiler_paper.parquet \
-  --profile morphem=data/processed/morphem.parquet
+  --output data/profiles/cellprofiler_paper_crispr.parquet \
+  --subset crispr
+jumpbench process \
+  --input data/profiles/cellprofiler_paper_crispr.parquet \
+  --output data/processed/cellprofiler_paper_crispr.parquet \
+  --preset paper_cp_default
+jumpbench evaluate \
+  --input data/processed/cellprofiler_paper_crispr.parquet \
+  --tasks pa --subset crispr \
+  --output data/results/cellprofiler_paper_crispr_pa.json
 ```
 
-`compare --mode paper_as_published` is tagged **unfair** in the output on
-purpose.
+The paper's CRISPR PA NAP is **0.815** (Figure 5, average over 48 configs). A
+single CPU `paper_cp_default` run will not match that exactly.
+
+Full-cohort `compare --mode paper_as_published` is tagged **unfair** in the
+output on purpose.
 
 ## Data
 

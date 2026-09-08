@@ -14,6 +14,7 @@ presets:
     control_key: negcon
     inverse_normal_transform: false
     prune_correlated: true
+    corr_prune_method: greedy
     corr_threshold: 0.90
     pca_components: 128
     tvn_efaar: true
@@ -26,15 +27,20 @@ presets:
     variance_unique_cut: 0.01
     normalize: robustmad
     fit_on_controls: true
-    batch_col: Metadata_Plate
+    batch_col: Metadata_Plate     # RobustMAD
+    tvn_batch_col: Metadata_Batch # JUMP_lite v9_cp TVN-EFAAR
     control_col: Metadata_control_type
     control_key: negcon
     inverse_normal_transform: true
+    outlier_cutoff: 100
     prune_correlated: true
+    corr_prune_method: independent_set
     corr_threshold: 0.90
-    pca_components: 128
+    pca_components: null          # PCA is inside TVN-EFAAR, fit on controls
     tvn_efaar: true
+    tvn_n_components: 128
     tvn_epsilon: 0.5
+    tvn_dim_ratio_threshold: 2.5
     robustmad_epsilon: 1.0e-18
 
   identity:
