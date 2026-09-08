@@ -76,8 +76,7 @@ def _require_imagecodecs():
         import imagecodecs
     except ImportError as exc:
         raise ImportError(
-            "Streaming JPEG XL compression needs imagecodecs. "
-            "Install with: pip install imagecodecs"
+            "Streaming JPEG XL compression needs imagecodecs. Install with: pip install imagecodecs"
         ) from exc
     return imagecodecs
 

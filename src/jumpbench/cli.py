@@ -188,7 +188,9 @@ def cmd_compare(args: argparse.Namespace) -> int:
             raise SystemExit("--profile must be NAME=PATH")
         name, path = spec.split("=", 1)
         profiles[name] = pl.read_parquet(path)
-    table = compare_runs(profiles, mode=args.mode, output=Path(args.output) if args.output else None)
+    table = compare_runs(
+        profiles, mode=args.mode, output=Path(args.output) if args.output else None
+    )
     print(table)
     if not table["fair"][0]:
         print("\nThis comparison is tagged UNFAIR. See README.md § Fairness.", file=sys.stderr)
@@ -224,7 +226,9 @@ def cmd_smoke(args: argparse.Namespace) -> int:
             tifffile.imwrite(images / f"{site}__{ch}.tif", arr)
 
     cfg = apply_overrides(load_models_config(), ["models.dummy.tile_size=64"])
-    site_path = generate_embeddings("dummy", images, root / "embeddings", models_cfg=cfg, codec="synth")
+    site_path = generate_embeddings(
+        "dummy", images, root / "embeddings", models_cfg=cfg, codec="synth"
+    )
     well_path = aggregate_path(site_path, root / "profiles" / "dummy.parquet")
     print(f"smoke site embeddings: {site_path}")
     print(f"smoke well profiles:   {well_path}  rows={pl.read_parquet(well_path).height}")

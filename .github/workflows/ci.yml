@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ruff:
+    name: Ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Version is read from pyproject.toml (ruff==0.16.5), matching .pre-commit-config.yaml.
+      - name: Ruff check
+        uses: astral-sh/ruff-action@v4.1.0
+      - name: Ruff format
+        uses: astral-sh/ruff-action@v4.1.0
+        with:
+          args: format --check --diff
+
+  ty:
+    name: ty
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: "3.11"
+      - name: Type check
+        run: uv run --frozen --extra dev ty check
+
+  pytest:
+    name: pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: uv sync --locked --extra dev
+      - name: Test
+        run: uv run --frozen --extra dev pytest

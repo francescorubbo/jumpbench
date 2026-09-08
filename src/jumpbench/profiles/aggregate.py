@@ -48,9 +48,8 @@ def aggregate_sites_to_wells(
 
     if {"metric", "value", "object"}.issubset(df.columns):
         well_cols = ["Metadata_Source", "Metadata_Batch", "Metadata_Plate", "Metadata_Well"]
-        grouped = (
-            df.group_by([*well_cols, "object", "metric"])
-            .agg(tile_agg("value").alias("value"))
+        grouped = df.group_by([*well_cols, "object", "metric"]).agg(
+            tile_agg("value").alias("value")
         )
         wide = grouped.pivot(on="metric", index=well_cols, values="value")
         if "Metadata_id" not in wide.columns:
@@ -68,7 +67,11 @@ def aggregate_sites_to_wells(
         return wide
 
     feats = [c for c in df.columns if c.startswith("feat_") or c in _feature_cols(df)]
-    well_cols = [c for c in ("Metadata_Source", "Metadata_Batch", "Metadata_Plate", "Metadata_Well") if c in df.columns]
+    well_cols = [
+        c
+        for c in ("Metadata_Source", "Metadata_Batch", "Metadata_Plate", "Metadata_Well")
+        if c in df.columns
+    ]
     if not well_cols:
         raise ValueError("Need Metadata_Source/Batch/Plate/Well to aggregate")
 

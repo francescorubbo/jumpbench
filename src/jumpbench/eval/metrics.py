@@ -152,7 +152,9 @@ def evaluate_profiles(
 ) -> dict[str, Any]:
     out: dict[str, Any] = {}
     if "pa" in tasks:
-        pa = phenotypic_activity(df, **{k: v for k, v in kwargs.items() if k in phenotypic_activity.__code__.co_varnames})
+        pa = phenotypic_activity(
+            df, **{k: v for k, v in kwargs.items() if k in phenotypic_activity.__code__.co_varnames}
+        )
         out["pa"] = {k: v for k, v in pa.items() if k != "activity_map"}
         out["_pa_map"] = pa.get("activity_map")
     if "pc" in tasks:
@@ -162,7 +164,10 @@ def evaluate_profiles(
         except KeyError as exc:
             out["pc"] = {"error": str(exc)}
     if "pa" in out and "pc" in out and "mean_nap" in out.get("pc", {}):
-        out["balanced_pa_pc"] = balanced_pa_pc(out["pa"]["mean_nap"], out["pc"].get("mean_nap", float("nan")))
+        out["balanced_pa_pc"] = balanced_pa_pc(
+            float(out["pa"]["mean_nap"]),
+            float(out["pc"].get("mean_nap", float("nan"))),
+        )
     return out
 
 

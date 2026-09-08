@@ -31,8 +31,11 @@ class DummyBackend(EmbeddingBackend):
 
     def embed_tiles(self, tiles: np.ndarray) -> np.ndarray:
         n, c, h, w = tiles.shape
+        dim = self.embedding_dim
+        if dim is None:
+            raise RuntimeError("DummyBackend.embedding_dim is unset")
         rng = np.random.default_rng(self.seed)
-        proj = rng.standard_normal((c * 4, self.embedding_dim)).astype(np.float32)
+        proj = rng.standard_normal((c * 4, dim)).astype(np.float32)
         stats = np.stack(
             [
                 tiles.mean(axis=(2, 3)),
@@ -88,12 +91,13 @@ class MorphEmBackend(EmbeddingBackend):
 
     def __init__(self, card: dict[str, Any]):
         super().__init__(card)
-        import torch
         from transformers import AutoModel
 
         device = _torch_device(card.get("runtime", {}).get("device", "auto"))
         self.device = device
-        self.model = AutoModel.from_pretrained(card.get("checkpoint", "CaicedoLab/MorphEm"), trust_remote_code=True)
+        self.model = AutoModel.from_pretrained(
+            card.get("checkpoint", "CaicedoLab/MorphEm"), trust_remote_code=True
+        )
         self.model.eval().to(device)
         self.batch_size = int(card.get("runtime", {}).get("batch_size", 8))
         self.bag_of_channels = bool(card.get("bag_of_channels", True))
@@ -119,7 +123,6 @@ class MorphEmBackend(EmbeddingBackend):
 class OpenPhenomBackend(EmbeddingBackend):
     def __init__(self, card: dict[str, Any]):
         super().__init__(card)
-        import torch
         from transformers import AutoModel
 
         device = _torch_device(card.get("runtime", {}).get("device", "auto"))

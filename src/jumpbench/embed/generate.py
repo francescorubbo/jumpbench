@@ -42,7 +42,7 @@ def embed_site(image: np.ndarray, card: dict[str, Any], backend) -> tuple[np.nda
 def _wide_rows(site_key: str, feats: np.ndarray, coords: np.ndarray) -> pl.DataFrame:
     parsed = parse_site_key(site_key)
     n, dim = feats.shape
-    data = {f"feat_{i:04d}": feats[:, i] for i in range(dim)}
+    data: dict[str, Any] = {f"feat_{i:04d}": feats[:, i] for i in range(dim)}
     data.update(
         {
             "tile_y": coords[:, 0],

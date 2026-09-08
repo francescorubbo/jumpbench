@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import polars as pl
 import pytest
 
 from jumpbench.config import apply_overrides, load_models_config, resolve_model
@@ -8,12 +9,15 @@ from jumpbench.embed.preprocess import apply_preprocess, clip_percentile, standa
 from jumpbench.embed.tiling import crop_tiles, reorder_channels, select_channels
 from jumpbench.profiles.aggregate import aggregate_sites_to_wells
 from jumpbench.profiles.cellprofiler import comparison_is_fair
-import polars as pl
 
 
 def test_dinov2_channel_recipes_disagree():
-    as_run = resolve_model("dinov2", apply_overrides(load_models_config(), ["channel_recipe=jump_lite_as_run"]))
-    paper = resolve_model("dinov2", apply_overrides(load_models_config(), ["channel_recipe=paper_table_s3"]))
+    as_run = resolve_model(
+        "dinov2", apply_overrides(load_models_config(), ["channel_recipe=jump_lite_as_run"])
+    )
+    paper = resolve_model(
+        "dinov2", apply_overrides(load_models_config(), ["channel_recipe=paper_table_s3"])
+    )
     assert as_run["channels"] == ["AGP", "DNA", "ER"]
     assert paper["channels"] == ["DNA", "AGP", "Mito"]
     assert as_run["channels"] != paper["channels"]

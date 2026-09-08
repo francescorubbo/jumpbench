@@ -24,12 +24,7 @@ META_PREFIX = "Metadata_"
 
 
 def feature_columns(df: pl.DataFrame) -> list[str]:
-    return [
-        c
-        for c in df.columns
-        if not c.startswith(META_PREFIX)
-        and df[c].dtype.is_numeric()
-    ]
+    return [c for c in df.columns if not c.startswith(META_PREFIX) and df[c].dtype.is_numeric()]
 
 
 def _as_numpy(df: pl.DataFrame, cols: list[str]) -> np.ndarray:
@@ -91,7 +86,9 @@ def inverse_normal_transform(X: np.ndarray) -> np.ndarray:
     return out
 
 
-def prune_correlated(X: np.ndarray, names: list[str], threshold: float) -> tuple[np.ndarray, list[str]]:
+def prune_correlated(
+    X: np.ndarray, names: list[str], threshold: float
+) -> tuple[np.ndarray, list[str]]:
     if X.shape[1] <= 1:
         return X, names
     corr = np.corrcoef(X, rowvar=False)
@@ -145,7 +142,11 @@ def _control_mask(df: pl.DataFrame, col: str, key: str) -> np.ndarray:
 
 def attach_perturbation_metadata(df: pl.DataFrame) -> pl.DataFrame:
     meta = load_perturbations()
-    join = [c for c in ("Metadata_Source", "Metadata_Batch", "Metadata_Plate", "Metadata_Well") if c in df.columns and c in meta.columns]
+    join = [
+        c
+        for c in ("Metadata_Source", "Metadata_Batch", "Metadata_Plate", "Metadata_Well")
+        if c in df.columns and c in meta.columns
+    ]
     if len(join) < 4:
         return df
     extra = [c for c in meta.columns if c.startswith("Metadata_") and c not in df.columns]
@@ -157,7 +158,9 @@ def attach_perturbation_metadata(df: pl.DataFrame) -> pl.DataFrame:
     if "Metadata_negcon" not in out.columns and "Metadata_pert_type" in out.columns:
         out = out.with_columns((pl.col("Metadata_pert_type") == "negcon").alias("Metadata_negcon"))
     elif "Metadata_negcon" not in out.columns and "Metadata_control_type" in out.columns:
-        out = out.with_columns((pl.col("Metadata_control_type") == "negcon").alias("Metadata_negcon"))
+        out = out.with_columns(
+            (pl.col("Metadata_control_type") == "negcon").alias("Metadata_negcon")
+        )
     return out
 
 

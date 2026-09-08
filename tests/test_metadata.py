@@ -1,6 +1,7 @@
+import polars as pl
+
 from jumpbench.data.metadata import load_perturbations, load_sites, load_wells
 from jumpbench.profiles.normalize import attach_perturbation_metadata
-import polars as pl
 
 
 def test_frozen_cohort_counts():
@@ -10,8 +11,10 @@ def test_frozen_cohort_counts():
 
 
 def test_negcon_flag_from_pert_type():
-    wells = load_perturbations().head(50).select(
-        "Metadata_Source", "Metadata_Batch", "Metadata_Plate", "Metadata_Well"
+    wells = (
+        load_perturbations()
+        .head(50)
+        .select("Metadata_Source", "Metadata_Batch", "Metadata_Plate", "Metadata_Well")
     )
     dummy = wells.with_columns(pl.lit(1.0).alias("feat_0000"))
     out = attach_perturbation_metadata(dummy)

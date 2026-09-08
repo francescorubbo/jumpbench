@@ -36,8 +36,10 @@ cellprofiler = [
     "cp-measure @ git+https://github.com/afermg/cp_measure.git",
 ]
 dev = [
+    "pre-commit>=4.3",
     "pytest>=8.0",
-    "ruff>=0.6",
+    "ruff==0.16.5",
+    "ty==0.0.79",
 ]
 
 [project.scripts]
@@ -64,3 +66,11 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
+ignore = ["E501"]  # formatter already wraps code; E501 only flags long strings/signatures
+
+[tool.ty.environment]
+python-version = "3.11"
+
+[tool.ty.analysis]
+# Torch / transformers live in the optional `embed` extra, not the default env.
+allowed-unresolved-imports = ["torch", "torch.**", "transformers", "transformers.**"]

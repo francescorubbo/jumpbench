@@ -193,9 +193,9 @@ def download_s3_file(
 
     if dest.exists():
         size = dest.stat().st_size
-        complete = (
-            expected_size is not None and size == expected_size
-        ) or (expected_size is None and size >= MIN_COMPLETE_BYTES)
+        complete = (expected_size is not None and size == expected_size) or (
+            expected_size is None and size >= MIN_COMPLETE_BYTES
+        )
         if complete:
             if part.exists():
                 part.unlink()

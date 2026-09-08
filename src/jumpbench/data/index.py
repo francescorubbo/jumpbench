@@ -41,10 +41,7 @@ CHANNELS = tuple(ORIG_URL_COLUMNS.values())
 
 
 def load_data_key(source: str, batch: str, plate: str) -> str:
-    return (
-        f"cpg0016-jump/{source}/workspace/load_data_csv/{batch}/{plate}/"
-        "load_data_with_illum.csv"
-    )
+    return f"cpg0016-jump/{source}/workspace/load_data_csv/{batch}/{plate}/load_data_with_illum.csv"
 
 
 def load_data_cache_path(cache_dir: Path, source: str, batch: str, plate: str) -> Path:
@@ -113,14 +110,19 @@ def site_set_summary(index: pl.DataFrame) -> dict[str, object]:
     site_set = None
     if "Metadata_site_set" in index.columns and index.height:
         site_set = index["Metadata_site_set"][0]
+    min_sites = counts.min() if per_well.height else None
+    median_sites = counts.median() if per_well.height else None
+    max_sites = counts.max() if per_well.height else None
     return {
         "site_set": site_set,
         "wells": per_well.height,
         "sites": sites.height,
         "files": index.height,
-        "sites_per_well_min": int(counts.min()) if per_well.height else 0,
-        "sites_per_well_median": float(counts.median()) if per_well.height else 0.0,
-        "sites_per_well_max": int(counts.max()) if per_well.height else 0,
+        "sites_per_well_min": int(min_sites) if isinstance(min_sites, (int, float)) else 0,
+        "sites_per_well_median": float(median_sites)
+        if isinstance(median_sites, (int, float))
+        else 0.0,
+        "sites_per_well_max": int(max_sites) if isinstance(max_sites, (int, float)) else 0,
     }
 
 

@@ -67,18 +67,14 @@ def _nine_site_catalog() -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
             )
     catalog = pl.DataFrame(rows)
     wells = pl.DataFrame([well])
-    frozen = attach_site_keys(
-        pl.DataFrame([{**well, "Metadata_Site": s} for s in range(4)])
-    )
+    frozen = attach_site_keys(pl.DataFrame([{**well, "Metadata_Site": s} for s in range(4)]))
     return catalog, wells, frozen
 
 
 def test_all_sites_keeps_every_fov_jump_lite_keeps_four():
     catalog, wells, frozen = _nine_site_catalog()
     all_sites = restrict_to_site_set(catalog, site_set="all", wells=wells)
-    lite = restrict_to_site_set(
-        catalog, site_set="jump_lite", wells=wells, frozen_sites=frozen
-    )
+    lite = restrict_to_site_set(catalog, site_set="jump_lite", wells=wells, frozen_sites=frozen)
     assert all_sites.select("Metadata_Site").n_unique() == 9
     assert lite.select("Metadata_Site").n_unique() == 4
     assert all_sites["Metadata_site_set"][0] == "all"

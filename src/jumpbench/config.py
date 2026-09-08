@@ -67,7 +67,9 @@ def resolve_model(name: str, models_cfg: dict[str, Any] | None = None) -> dict[s
     if "model_channel_order" in recipe_block:
         card["model_channel_order"] = list(recipe_block["model_channel_order"])
     card["preprocess"] = list(card.get("preprocess") or [])
-    card["tile_size"] = int(card.get("tile_size") or models_cfg.get("runtime", {}).get("tile_size") or 224)
+    card["tile_size"] = int(
+        card.get("tile_size") or models_cfg.get("runtime", {}).get("tile_size") or 224
+    )
     card["aggregation"] = deepcopy(models_cfg.get("aggregation", {}))
     card["runtime"] = deepcopy(models_cfg.get("runtime", {}))
     card["zarr_channels"] = list(models_cfg.get("zarr_channels", ZARR_CHANNELS))

@@ -15,9 +15,7 @@ def crop_tiles(image: np.ndarray, tile_size: int) -> tuple[np.ndarray, np.ndarra
     n_y = height // tile_size
     n_x = width // tile_size
     if n_y == 0 or n_x == 0:
-        raise ValueError(
-            f"Image {height}x{width} is smaller than tile_size={tile_size}"
-        )
+        raise ValueError(f"Image {height}x{width} is smaller than tile_size={tile_size}")
     tiles = []
     coords = []
     for iy in range(n_y):

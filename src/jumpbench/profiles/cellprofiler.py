@@ -36,7 +36,9 @@ def restrict_to_jump_lite_wells(
             raise ValueError(f"Missing join column {col}")
         left = left.with_columns(pl.col(col).cast(pl.Utf8))
         right = right.with_columns(pl.col(col).cast(pl.Utf8))
-    keep_right = JOIN + [c for c in right.columns if c.startswith("Metadata_") and c not in left.columns]
+    keep_right = JOIN + [
+        c for c in right.columns if c.startswith("Metadata_") and c not in left.columns
+    ]
     return left.join(right.select(keep_right), on=JOIN, how="inner")
 
 
@@ -44,9 +46,7 @@ def load_paper_cellprofiler(path: str | Path, align_wells: bool = True) -> pl.Da
     df = pl.read_parquet(resolve(path))
     if align_wells:
         df = restrict_to_jump_lite_wells(df)
-        df = df.with_columns(
-            pl.lit("paper_assembled_6to9_sites").alias("Metadata_comparison_mode")
-        )
+        df = df.with_columns(pl.lit("paper_assembled_6to9_sites").alias("Metadata_comparison_mode"))
     else:
         df = df.with_columns(pl.lit("paper_assembled_unaligned").alias("Metadata_comparison_mode"))
     df = df.with_columns(pl.lit("cellprofiler_paper").alias("Metadata_model"))

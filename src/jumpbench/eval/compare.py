@@ -51,7 +51,9 @@ def compare_runs(
                 "comparison_mode": mode,
                 "fair": comparison_is_fair(mode),
                 "pa_mean_nap": metrics.get("pa", {}).get("mean_nap"),
-                "pc_mean_nap": metrics.get("pc", {}).get("mean_nap") if isinstance(metrics.get("pc"), dict) else None,
+                "pc_mean_nap": metrics.get("pc", {}).get("mean_nap")
+                if isinstance(metrics.get("pc"), dict)
+                else None,
                 "balanced_pa_pc": metrics.get("balanced_pa_pc"),
                 "n_wells": df.height,
                 "n_features": sum(not c.startswith("Metadata_") for c in df.columns),

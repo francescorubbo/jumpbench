@@ -140,9 +140,7 @@ def _sample_remaining(
     remaining_keys: set[tuple[str, str]],
     n: int,
 ) -> pl.DataFrame:
-    work = index.with_columns(
-        (pl.col("Metadata_Site_Key") + "\0" + pl.col("channel")).alias("_k")
-    )
+    work = index.with_columns((pl.col("Metadata_Site_Key") + "\0" + pl.col("channel")).alias("_k"))
     want = {f"{site}\0{ch}" for site, ch in remaining_keys}
     work = work.filter(pl.col("_k").is_in(list(want)))
     if work.height == 0:
