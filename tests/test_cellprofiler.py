@@ -82,7 +82,11 @@ def test_align_recovers_batch_from_wells(tmp_path: Path, monkeypatch):
     got = pl.read_parquet(out)
     assert got.height == 3
     assert got["Metadata_Batch"].to_list() == ["batchA"] * 3
-    assert got["Metadata_id"][0] == "source_13__batchA__P1__A01"
+    assert set(got["Metadata_id"].to_list()) == {
+        "source_13__batchA__P1__A01",
+        "source_13__batchA__P1__A02",
+        "source_13__batchA__P1__A03",
+    }
 
 
 def test_align_parses_site_column(tmp_path: Path, monkeypatch):
