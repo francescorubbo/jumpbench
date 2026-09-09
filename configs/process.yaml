@@ -1,6 +1,6 @@
-# Profile post-processing. Paper swept 48 (DL) / 48 (CP) / 4 (cell_count)
-# configs per model×codec and picked the max balanced PA×PC (min-max rescaled).
-# Defaults below are the v11_lite DL center of that grid, not "the" winner.
+# Profile post-processing. Paper S1.2.6 swept 280 CP / up to 420 DL configs per
+# model×codec and picked the max balanced PA×PC (min-max rescaled).
+# This repo ranks CRISPR PA only. Defaults below are the grid center, not the winner.
 
 presets:
   paper_dl_default:
@@ -53,6 +53,16 @@ presets:
     pca_components: null
     tvn_efaar: false
     inverse_normal_transform: false
+
+# Cartesian axes only (lists). Fixed knobs stay on the named preset.
+# This repo ranks by CRISPR PA, not the paper's min-max-rescaled PA×PC.
+sweep_paper_cp_v11:
+  normalize: [robustmad, standardize]
+  fit_on_controls: [true, false]
+  corr_threshold: [0.9, 0.95]
+  tvn_epsilon: [0.05, 0.1, 0.2, 0.5, 1.0]
+  tvn_n_components: [96, 128, 150, 170, 196, 256, 304]
+  # 2 × 2 × 2 × 5 × 7 = 280 (paper S1.2.6 engineered-feature grid)
 
 sweep_paper_dl_v11_lite:
   normalize: [robustmad, standardize, none]

@@ -16,11 +16,69 @@ from scipy.linalg import fractional_matrix_power, pinvh
 from scipy.stats import median_abs_deviation, norm, rankdata
 from sklearn.decomposition import PCA
 
-from jumpbench.config import load_process_config
+from jumpbench.config import apply_overrides, load_process_config
 from jumpbench.data.metadata import load_perturbations
 from jumpbench.paths import resolve
 
 META_PREFIX = "Metadata_"
+DEVICES = ("cpu", "mps", "auto")
+
+
+def resolve_device(device: str | None = "cpu") -> str:
+    """Map cpu|mps|auto to a concrete device. auto prefers MPS when torch has it."""
+    requested = (device or "cpu").lower()
+    if requested == "cpu":
+        return "cpu"
+    if requested not in {"mps", "auto"}:
+        raise ValueError(f"Unknown device {device!r}. Known: {', '.join(DEVICES)}")
+    try:
+        import torch
+    except ImportError:
+        if requested == "mps":
+            raise RuntimeError(
+                "torch is required for --device mps (pip install -e '.[embed]')"
+            ) from None
+        return "cpu"
+    available = bool(getattr(torch.backends, "mps", None) and torch.backends.mps.is_available())
+    if requested == "mps" and not available:
+        raise RuntimeError("MPS is not available on this machine")
+    return "mps" if available else "cpu"
+
+
+def _corrcoef(X: np.ndarray, device: str = "cpu") -> np.ndarray:
+    if X.shape[1] <= 1:
+        return np.corrcoef(X, rowvar=False)
+    if device == "cpu":
+        return np.corrcoef(X, rowvar=False)
+    import torch
+
+    tensor = torch.as_tensor(np.ascontiguousarray(X), dtype=torch.float32, device=device)
+    corr = torch.corrcoef(tensor.T)
+    return corr.detach().cpu().numpy().astype(np.float64, copy=False)
+
+
+def _pca_fit_transform(
+    X: np.ndarray,
+    fit_rows: np.ndarray,
+    n_components: int,
+    device: str = "cpu",
+) -> np.ndarray:
+    n_comp = min(int(n_components), fit_rows.shape[0] - 1, fit_rows.shape[1], X.shape[0] - 1)
+    n_comp = max(1, n_comp)
+    if device == "cpu":
+        pca = PCA(n_components=n_comp, svd_solver="full")
+        pca.fit(fit_rows)
+        return pca.transform(X)
+    import torch
+
+    fit = torch.as_tensor(np.ascontiguousarray(fit_rows), dtype=torch.float32, device=device)
+    data = torch.as_tensor(np.ascontiguousarray(X), dtype=torch.float32, device=device)
+    mean = fit.mean(dim=0)
+    centered = fit - mean
+    _u, _s, vh = torch.linalg.svd(centered, full_matrices=False)
+    components = vh[:n_comp]
+    out = (data - mean) @ components.T
+    return out.detach().cpu().numpy().astype(np.float64, copy=False)
 
 
 def feature_columns(df: pl.DataFrame) -> list[str]:
@@ -162,10 +220,11 @@ def prune_correlated(
     names: list[str],
     threshold: float,
     method: str = "greedy",
+    device: str = "cpu",
 ) -> tuple[np.ndarray, list[str]]:
     if X.shape[1] <= 1:
         return X, names
-    corr = np.corrcoef(X, rowvar=False)
+    corr = _corrcoef(X, device=device)
     corr = np.nan_to_num(corr, nan=0.0, posinf=0.0, neginf=0.0)
     abs_corr = np.abs(corr)
     np.fill_diagonal(abs_corr, 0)
@@ -219,6 +278,7 @@ def tvn_efaar_full(
     n_components: int = 128,
     epsilon: float = 0.5,
     dim_ratio_threshold: float = 2.5,
+    device: str = "cpu",
 ) -> tuple[np.ndarray, list[str]]:
     """JUMP_lite TVN-EFAAR: scale → PCA on controls → per-batch scale → CORAL."""
     X = standardize(X, X[control_mask])
@@ -234,9 +294,7 @@ def tvn_efaar_full(
         min_controls = min(counts)
     if min_controls >= 2 and n_comp / min_controls > dim_ratio_threshold:
         n_comp = max(1, int(min_controls * dim_ratio_threshold))
-    pca = PCA(n_components=n_comp, svd_solver="full")
-    pca.fit(X[control_mask])
-    X = pca.transform(X)
+    X = _pca_fit_transform(X, X[control_mask], n_comp, device=device)
     scaled = np.empty_like(X, dtype=np.float64)
     for batch in np.unique(batch_labels):
         mask = batch_labels == batch
@@ -289,8 +347,17 @@ def process_profiles(
     df: pl.DataFrame,
     preset: str = "paper_dl_default",
     process_cfg: dict[str, Any] | None = None,
+    overrides: list[str] | None = None,
+    preset_overrides: dict[str, Any] | None = None,
+    device: str = "cpu",
 ) -> pl.DataFrame:
-    cfg = (process_cfg or load_process_config())["presets"][preset]
+    full = process_cfg or load_process_config()
+    cfg = dict(full["presets"][preset])
+    if preset_overrides:
+        cfg.update(preset_overrides)
+    if overrides:
+        cfg = apply_overrides(cfg, overrides)
+    device = resolve_device(device)
     work = attach_perturbation_metadata(df)
     names = feature_columns(work)
     X = _as_numpy(work, names)
@@ -344,12 +411,12 @@ def process_profiles(
             names,
             float(cfg.get("corr_threshold", 0.9)),
             method=str(cfg.get("corr_prune_method", "greedy")),
+            device=device,
         )
     n_comp = cfg.get("pca_components")
     if n_comp:
         n_comp = min(int(n_comp), X.shape[0] - 1, X.shape[1])
-        pca = PCA(n_components=n_comp, svd_solver="full")
-        X = pca.fit_transform(X)
+        X = _pca_fit_transform(X, X, n_comp, device=device)
         names = [f"PC_{i + 1:03d}" for i in range(X.shape[1])]
     if cfg.get("tvn_efaar"):
         tvn_batch_col = cfg.get("tvn_batch_col") or batch_col
@@ -365,6 +432,7 @@ def process_profiles(
                     n_components=int(tvn_n),
                     epsilon=tvn_eps,
                     dim_ratio_threshold=float(cfg.get("tvn_dim_ratio_threshold", 2.5)),
+                    device=device,
                 )
             else:
                 X = tvn_efaar(X, controls, tvn_batches, tvn_eps)
@@ -373,9 +441,22 @@ def process_profiles(
     return pl.concat([work.select(meta_cols), feat_df], how="horizontal")
 
 
-def process_path(input_path: Path, output_path: Path, preset: str = "paper_dl_default") -> Path:
+def process_path(
+    input_path: Path,
+    output_path: Path,
+    preset: str = "paper_dl_default",
+    overrides: list[str] | None = None,
+    preset_overrides: dict[str, Any] | None = None,
+    device: str = "cpu",
+) -> Path:
     df = pl.read_parquet(resolve(input_path))
-    out = process_profiles(df, preset=preset)
+    out = process_profiles(
+        df,
+        preset=preset,
+        overrides=overrides,
+        preset_overrides=preset_overrides,
+        device=device,
+    )
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     out.write_parquet(output_path)

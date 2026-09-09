@@ -98,27 +98,35 @@ jumpbench evaluate --tasks pa,pc
 jumpbench compare --mode fair_all_sites --profile morphem=... --profile cellprofiler_paper=...
 ```
 
-Paper-as-published CellProfiler, CRISPR phenotypic activity only (unfair site
-support; processing is also CRISPR-only, unlike the paper which fit prune/PCA/TVN
-on all JUMP-lite wells):
+Paper-as-published CellProfiler, CRISPR phenotypic activity. Process fits on
+all JUMP-lite wells. `evaluate --subset crispr` keeps CRISPR wells plus
+plate-matched negcons. Ranking a process-config grid uses CRISPR PA only
+(not the paper's min-max-rescaled PA×PC):
 
 ```bash
 jumpbench download-paper-cp          # ~13.5 GB assembled CPG profiles
 jumpbench align-paper-cp --input data/paper_cp/profiles.parquet \
-  --output data/profiles/cellprofiler_paper_crispr.parquet \
-  --subset crispr
-jumpbench process \
-  --input data/profiles/cellprofiler_paper_crispr.parquet \
-  --output data/processed/cellprofiler_paper_crispr.parquet \
-  --preset paper_cp_default
-jumpbench evaluate \
-  --input data/processed/cellprofiler_paper_crispr.parquet \
-  --tasks pa --subset crispr \
-  --output data/results/cellprofiler_paper_crispr_pa.json
+  --output data/profiles/cellprofiler_paper_all.parquet \
+  --subset all
+jumpbench sweep list --grid sweep_paper_cp_v11
+jumpbench sweep run --grid sweep_paper_cp_v11 --preset paper_cp_default \
+  --input data/profiles/cellprofiler_paper_all.parquet \
+  --processed-dir data/processed/cp_v11 \
+  --results-dir data/results/cp_v11 \
+  --jobs 4
+# job array: --index N  (N in 0..279)
+# Apple GPU corrcoef/PCA: --device mps --jobs 1
+jumpbench sweep gather --results-dir data/results/cp_v11
 ```
 
-The paper's CRISPR PA NAP is **0.815** (Figure 5, average over 48 configs). A
-single CPU `paper_cp_default` run will not match that exactly.
+Embeddings reuse the same evaluate job with a different `--input`, `--grid`,
+and `--preset` (for example `sweep_paper_dl_v11_lite` / `paper_dl_default`).
+
+`--subset crispr` on `align-paper-cp` still exists for a cheaper CRISPR-only
+process. The paper's CRISPR PA NAP is **0.815** (Figure 5, the config that
+won on balanced PA×PC). This sweep picks the max CRISPR PA, so 0.815 is a
+directional check, not a same-recipe target. A single CPU `paper_cp_default`
+run will not match it either.
 
 Full-cohort `compare --mode paper_as_published` is tagged **unfair** in the
 output on purpose.

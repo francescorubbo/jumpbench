@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
+from jumpbench.profiles.cellprofiler import SUBSETS, filter_crispr_wells
 from jumpbench.profiles.normalize import feature_columns
 
 PAPER_PA_CRISPR = 0.815
@@ -150,9 +151,16 @@ def balanced_pa_pc(pa: float, pc: float) -> float:
 def evaluate_profiles(
     df: pl.DataFrame,
     tasks: tuple[str, ...] = ("pa", "pc"),
+    subset: str | None = None,
+    paper_ref: str | None = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
-    paper_ref = kwargs.pop("paper_ref", None)
+    subset = subset or "all"
+    if subset == "crispr":
+        df = filter_crispr_wells(df)
+        paper_ref = paper_ref or "crispr"
+    elif subset not in {None, "all"}:
+        raise ValueError(f"Unknown subset {subset!r}. Known: {', '.join(SUBSETS)}")
     out: dict[str, Any] = {}
     if "pa" in tasks:
         pa_kwargs = {
