@@ -1,6 +1,6 @@
-# Profile post-processing. Paper swept 48 (DL) / 48 (CP) / 4 (cell_count)
-# configs per model×codec and picked the max balanced PA×PC (min-max rescaled).
-# Defaults below are the v11_lite DL center of that grid, not "the" winner.
+# Profile post-processing. Paper S1.2.6 swept 280 CP / up to 420 DL configs per
+# model×codec and picked the max balanced PA×PC (min-max rescaled).
+# This repo ranks CRISPR PA only. Defaults below are the grid center, not the winner.
 
 presets:
   paper_dl_default:
@@ -14,6 +14,7 @@ presets:
     control_key: negcon
     inverse_normal_transform: false
     prune_correlated: true
+    corr_prune_method: greedy
     corr_threshold: 0.90
     pca_components: 128
     tvn_efaar: true
@@ -26,15 +27,20 @@ presets:
     variance_unique_cut: 0.01
     normalize: robustmad
     fit_on_controls: true
-    batch_col: Metadata_Plate
+    batch_col: Metadata_Plate     # RobustMAD
+    tvn_batch_col: Metadata_Batch # JUMP_lite v9_cp TVN-EFAAR
     control_col: Metadata_control_type
     control_key: negcon
     inverse_normal_transform: true
+    outlier_cutoff: 100
     prune_correlated: true
+    corr_prune_method: independent_set
     corr_threshold: 0.90
-    pca_components: 128
+    pca_components: null          # PCA is inside TVN-EFAAR, fit on controls
     tvn_efaar: true
+    tvn_n_components: 128
     tvn_epsilon: 0.5
+    tvn_dim_ratio_threshold: 2.5
     robustmad_epsilon: 1.0e-18
 
   identity:
@@ -47,6 +53,16 @@ presets:
     pca_components: null
     tvn_efaar: false
     inverse_normal_transform: false
+
+# Cartesian axes only (lists). Fixed knobs stay on the named preset.
+# This repo ranks by CRISPR PA, not the paper's min-max-rescaled PA×PC.
+sweep_paper_cp_v11:
+  normalize: [robustmad, standardize]
+  fit_on_controls: [true, false]
+  corr_threshold: [0.9, 0.95]
+  tvn_epsilon: [0.05, 0.1, 0.2, 0.5, 1.0]
+  tvn_n_components: [96, 128, 150, 170, 196, 256, 304]
+  # 2 × 2 × 2 × 5 × 7 = 280 (paper S1.2.6 engineered-feature grid)
 
 sweep_paper_dl_v11_lite:
   normalize: [robustmad, standardize, none]

@@ -77,12 +77,30 @@ available as a control.
 
 CPU reimplementation of the variance-first recipe (`src/norm_3`): drop NA >
 30%, low-variance filter, RobustMAD (or z-score) fit on negative controls per
-plate, optional inverse-normal (CellProfiler only), greedy correlation prune,
-PCA, CORAL TVN-EFAAR. Paper swept 48 DL configs and kept the max balanced
-PA×PC. This repo defaults to the grid center (`configs/process.yaml`) so a
-single run is interpretable; sweep knobs are listed in that file.
+plate, optional inverse-normal (CellProfiler only), correlation prune
+(independent-set for CP, greedy for DL), then TVN-EFAAR. For CellProfiler,
+PCA is fit on controls *inside* TVN-EFAAR (JUMP_lite v11-lite CP). Paper S1.2.6
+swept 280 engineered-feature configs and kept the max min-max-rescaled PA×PC.
+This repo's `sweep_paper_cp_v11` is that grid, but **ranks by CRISPR PA only**.
+`paper_cp_default` is the grid center, not the paper winner.
 
-GPU RAPIDS numbers from JUMP_lite will not be bit-identical.
+GPU RAPIDS numbers from JUMP_lite will not be bit-identical. Optional
+`--device mps` runs corrcoef and PCA on Apple Silicon; CORAL and copairs stay
+on CPU. MPS forces `--jobs 1`.
+
+```bash
+jumpbench sweep run --grid sweep_paper_cp_v11 --preset paper_cp_default \
+  --input data/profiles/cellprofiler_paper_all.parquet \
+  --processed-dir data/processed/cp_v11 \
+  --results-dir data/results/cp_v11 \
+  --jobs 4
+jumpbench sweep gather --results-dir data/results/cp_v11
+```
+
+`evaluate --tasks pa --subset crispr` keeps CRISPR wells plus plate-matched
+negcons. Process can be fit on all JUMP-lite wells (the paper) or on a
+CRISPR-only `align-paper-cp --subset crispr` slice (cheaper). The published
+0.815 is a directional check: it came from the PA×PC-selected config.
 
 ## Metrics
 
