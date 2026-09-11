@@ -27,6 +27,7 @@ data/processed/
 data/results/
 data/paper_cp/
 data/annotations/
+data/masks/
 *.zarr/
 *.tif
 *.tiff

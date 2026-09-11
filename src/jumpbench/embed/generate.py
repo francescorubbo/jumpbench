@@ -314,7 +314,7 @@ def preview_crops(
             n_tried += 1
             _status(f"[{have}/{preview_n} crops] site {n_tried}: {key}  (load images)")
             image = load_site_images(images_root, key)
-            _status(f"[{have}/{preview_n} crops] site {n_tried}: crop / fetch mask")
+            _status(f"[{have}/{preview_n} crops] site {n_tried}: crop / mask")
             tiles, extra, stats = crop_site(image, card, site_key=key, mask=mask)
             n_skipped_no_mask += stats["n_skipped_no_mask"]
             n_skipped_edge += stats["n_skipped_edge"]
