@@ -23,6 +23,9 @@ def _feature_cols(df: pl.DataFrame) -> list[str]:
             "object",
             "tp",
             "filename",
+            "object_label",
+            "centroid_y",
+            "centroid_x",
         }:
             continue
         cols.append(c)
@@ -76,7 +79,10 @@ def aggregate_sites_to_wells(
         raise ValueError("Need Metadata_Source/Batch/Plate/Well to aggregate")
 
     work = df
-    if {"tile_y", "tile_x"}.issubset(df.columns) and "Metadata_Site" in df.columns:
+    per_object = "Metadata_Site" in df.columns and (
+        {"tile_y", "tile_x"}.issubset(df.columns) or "object_label" in df.columns
+    )
+    if per_object:
         site_cols = [*well_cols, "Metadata_Site"]
         work = work.group_by(site_cols).agg([tile_agg(c).alias(c) for c in feats])
     out = work.group_by(well_cols).agg([agg(c).alias(c) for c in feats])

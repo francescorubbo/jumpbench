@@ -45,3 +45,4 @@ layout:
   results: data/results
   paper_cp: data/paper_cp/profiles.parquet
   manifest: data/manifest
+  masks: data/masks

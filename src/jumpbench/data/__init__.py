@@ -1,6 +1,7 @@
 from jumpbench.data.download import download_paper_cellprofiler, download_tiffs
 from jumpbench.data.images import load_site_images, load_site_tiffs
 from jumpbench.data.index import build_tiff_index, load_data_key
+from jumpbench.data.masks import load_mask, mask_s3_keys, mask_sites
 from jumpbench.data.metadata import (
     load_perturbations,
     load_refchem,
@@ -14,11 +15,14 @@ __all__ = [
     "download_paper_cellprofiler",
     "download_tiffs",
     "load_data_key",
+    "load_mask",
     "load_perturbations",
     "load_refchem",
     "load_site_images",
     "load_site_tiffs",
     "load_sites",
     "load_wells",
+    "mask_s3_keys",
+    "mask_sites",
     "parse_site_key",
 ]

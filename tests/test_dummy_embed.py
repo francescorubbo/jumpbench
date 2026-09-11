@@ -11,7 +11,9 @@ def test_dummy_embed_is_deterministic():
     )
     backend = DummyBackend(card)
     image = np.arange(5 * 64 * 64, dtype=np.uint16).reshape(5, 64, 64)
-    a, _ = embed_site(image, card, backend)
-    b, _ = embed_site(image, card, backend)
+    a, extra, _stats = embed_site(image, card, backend)
+    b, extra_b, _ = embed_site(image, card, backend)
     assert a.shape[0] == 4  # 64/32 * 64/32
+    assert extra["tile_y"].shape[0] == 4
     assert np.allclose(a, b)
+    assert np.array_equal(extra["tile_x"], extra_b["tile_x"])

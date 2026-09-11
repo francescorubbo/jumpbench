@@ -85,6 +85,11 @@ def find_channel_path(images_root: Path, site_key: str, channel: str) -> Path | 
     return None
 
 
+def site_has_images(images_root: Path, site_key: str, channel: str = "DNA") -> bool:
+    """True if at least one channel file exists. Does not walk the tree."""
+    return find_channel_path(images_root, site_key, channel) is not None
+
+
 def find_tiff(images_root: Path, site_key: str, channel: str) -> Path | None:
     for path in tiff_candidates(images_root, site_key, channel):
         if path.exists():
@@ -157,11 +162,12 @@ def _site_from_filename(root: Path, path: Path) -> str | None:
         return None
 
 
-def list_local_sites(images_root: Path) -> list[str]:
-    keys = set()
+def iter_local_sites(images_root: Path) -> Iterator[str]:
+    """Yield site keys as files are discovered. Prefer this over a full-tree scan."""
+    seen: set[str] = set()
     root = Path(images_root)
     if not root.exists():
-        return []
+        return
     for dirpath, _dirnames, filenames in os.walk(root):
         base = Path(dirpath)
         for filename in filenames:
@@ -169,9 +175,13 @@ def list_local_sites(images_root: Path) -> list[str]:
             if suffix not in IMAGE_SUFFIXES:
                 continue
             site = _site_from_filename(root, base / filename)
-            if site:
-                keys.add(site)
-    return sorted(keys)
+            if site and site not in seen:
+                seen.add(site)
+                yield site
+
+
+def list_local_sites(images_root: Path) -> list[str]:
+    return sorted(iter_local_sites(images_root))
 
 
 def iter_flat_image_entries(images_root: Path) -> Iterator[os.DirEntry]:
