@@ -170,6 +170,7 @@ def cmd_download_masks(args: argparse.Namespace) -> int:
         max_wells=args.max_wells,
         sources=args.source or None,
         plates=getattr(args, "plate", None) or None,
+        batches=getattr(args, "batch", None) or None,
         site_keys=args.site or None,
     )["Metadata_Site_Key"].to_list()
     dest = Path(args.dest) if args.dest else None
@@ -194,12 +195,16 @@ def cmd_embed(args: argparse.Namespace) -> int:
     subset = args.subset
     if crop != "grid" and subset is None:
         subset = "crispr"
+    site_set = args.sites
+    if crop != "grid":
+        site_set = "jump_lite"
     if args.dry_run:
         print(
             f"Dry-run: {args.preview_n} {args.crop} crops from {args.images} (no embeddings)",
             file=sys.stderr,
             flush=True,
         )
+    run_dir = Path(args.run_dir) if getattr(args, "run_dir", None) else None
     out = generate_embeddings(
         model=args.model,
         images_root=Path(args.images),
@@ -212,7 +217,13 @@ def cmd_embed(args: argparse.Namespace) -> int:
         crop_margin=args.crop_margin,
         crop_size=args.crop_size,
         subset=subset,
+        site_set=site_set,
         max_wells=args.max_wells,
+        sources=args.source or None,
+        plates=args.plate or None,
+        batches=args.batch or None,
+        pool=args.pool,
+        run_dir=run_dir,
         dry_run=args.dry_run,
         preview_n=args.preview_n,
     )
@@ -546,6 +557,7 @@ def build_parser() -> argparse.ArgumentParser:
     dm.add_argument("--max-wells", type=int, default=None)
     dm.add_argument("--site", action="append", default=[])
     dm.add_argument("--source", action="append", default=[])
+    dm.add_argument("--batch", action="append", default=[])
     dm.add_argument("--plate", action="append", default=[])
     dm.add_argument(
         "--object",
@@ -597,13 +609,37 @@ def build_parser() -> argparse.ArgumentParser:
         "--subset",
         choices=("all", "crispr"),
         default=None,
-        help="Cell crops default to CRISPR 4-site keys. Ignored for --crop grid.",
+        help="Restrict wells. Cell crops default to CRISPR 4-site keys. "
+        "Grid defaults to every local site unless set.",
+    )
+    e.add_argument(
+        "--sites",
+        choices=("all", "jump_lite"),
+        default="all",
+        help="all = every local Orig FOV on selected wells. "
+        "jump_lite = frozen 4-site sample. Cell crops are always jump_lite.",
     )
     e.add_argument(
         "--max-wells",
         type=int,
         default=None,
-        help="Cap wells for cell-crop site selection (smoke runs)",
+        help="Cap wells after subset/batch/plate filters (smoke runs)",
+    )
+    e.add_argument("--site", action="append", default=[], help="Metadata_Site_Key (repeatable)")
+    e.add_argument("--source", action="append", default=[], help="JUMP source (repeatable)")
+    e.add_argument("--batch", action="append", default=[], help="Metadata_Batch (repeatable)")
+    e.add_argument("--plate", action="append", default=[], help="Metadata_Plate (repeatable)")
+    e.add_argument(
+        "--pool",
+        choices=("crop", "site"),
+        default="crop",
+        help="crop = one row per tile/cell. site = median-pool to one vector per site.",
+    )
+    e.add_argument(
+        "--run-dir",
+        type=Path,
+        default=None,
+        help="Write site_embeddings.parquet here (skips model/codec nesting under --output).",
     )
     e.add_argument(
         "--dry-run",
@@ -616,7 +652,6 @@ def build_parser() -> argparse.ArgumentParser:
         default=32,
         help="Max crops in a --dry-run montage (default 32)",
     )
-    e.add_argument("--site", action="append", default=[])
     _add_overrides(e)
     e.set_defaults(func=cmd_embed)
 

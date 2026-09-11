@@ -203,7 +203,7 @@ class TimmBackend(EmbeddingBackend):
 
         device = _torch_device(card.get("runtime", {}).get("device", "auto"))
         self.device = device
-        arch = card.get("architecture", "resnet50")
+        arch = card.get("architecture", "tf_efficientnet_b0")
         pretrained = bool(card.get("pretrained", True))
         probe = timm.create_model(arch, pretrained=False, num_classes=0)
         cfg = _timm_model_cfg(probe)

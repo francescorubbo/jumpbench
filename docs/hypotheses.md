@@ -43,9 +43,11 @@ What this study *can* vary, all inside timm + CRISPR PA + PCA/TVN:
 - grid vs cell crops (cell crops: 4-site masks only)
 - `--sites all` vs `--sites jump_lite` (grid only for all-FOV)
 - `tile_size` / remainder coverage
+- `cell_fixed` `--crop-size` (native cell window; H14). Grid native window is
+  already H3/H9 via `tile_size` (EfficientNet does not resize).
 - channel recipe (keep / drop stains) and bag-of-channels concat (timm’s
   native forward)
-- `models.timm.architecture` (conv vs DINOv2-class ViT; H13)
+- `models.timm.architecture` (conv vs DINOv2-class ViT; H12)
 
 ## Summary
 
@@ -64,6 +66,7 @@ What this study *can* vary, all inside timm + CRISPR PA + PCA/TVN:
 | H11 | Cell Count^ inherits extra CP sites | observational | open |
 | H12 | DINOv2 is a weak natural-image baseline vs convnets (EfficientNet) | in-scope | open |
 | H13 | Compression-robustness headline inherits flawed embedding evaluation | observational | open |
+| H14 | Default 224 px cell windows are not cell-scale | in-scope | open |
 
 ---
 
@@ -265,7 +268,7 @@ qualitative contrast only.
 
 **Status:** open
 
-**Decision:**
+**Decision:** 2026-09-11 — not tested in this study. Campaign constraint: no MorphEM / OpenPhenom re-embed. Status stays `open` (observational; not falsified by omission).
 
 ---
 
@@ -330,7 +333,7 @@ CP features).
 
 **Status:** open
 
-**Decision:**
+**Decision:** 2026-09-11 — not tested in this study. No `cp_measure` on JUMP-lite pixels. Status stays `open` (observational; not falsified by omission).
 
 ---
 
@@ -439,7 +442,7 @@ Table S3.
 
 **Status:** open
 
-**Decision:**
+**Decision:** 2026-09-11 — not tested in this study. No new CP-derived cell counts. Status stays `open` (observational; not falsified by omission).
 
 ---
 
@@ -459,11 +462,10 @@ any microscopy-specific pretraining.
 
 **What the paper / JUMP_lite / this repo actually did.** Paper DINOv2 is
 `dinov2_vits14` on a 3-channel RGB stack (as-run AGP/DNA/ER), not
-bag-of-channels (H4). This repo’s timm card defaults to `resnet50` and swaps
-backbones with `--set models.timm.architecture=...` (`configs/models.yaml`).
-Conv backbones keep native crop size; ViTs resize
-(`src/jumpbench/embed/backends.py`). Notes already mention
-`vit_small_patch14_dinov2.lvd142m`.
+bag-of-channels (H4). This repo’s timm card defaults to `tf_efficientnet_b0`
+and swaps backbones with `--set models.timm.architecture=...`
+(`configs/models.yaml`). Conv backbones keep native crop size; ViTs resize
+(`src/jumpbench/embed/backends.py`).
 
 **Testability:** in-scope under the timm recipe; partial vs the paper DINOv2
 run. The reachable test is architecture with **same** channels,
@@ -471,17 +473,18 @@ bag-of-channels, crop, sites, and PCA/TVN. It does not re-run JUMP_lite’s
 stacked DINOv2 (H4).
 
 **Planned test.** Hold crop, site set, channel recipe, and `paper_dl_default`
-PCA/TVN fixed. Compare CRISPR PA for a declared pair, for example:
+PCA/TVN fixed. Compare CRISPR PA for:
 
-- conv: `tf_efficientnet_b0` (or `efficientnet_b0`); optionally keep default
-  `resnet50` as a second conv
+- default conv: `tf_efficientnet_b0` (campaign B0)
+- conv champion: `tf_efficientnetv2_xl.in21k` (ImageNet-21k; not capacity-matched
+  to ViT-S)
 - transformer: `vit_small_patch14_dinov2.lvd142m` (DINOv2-class timm id, not
   the Nahual `dinov2` family)
 
-**Falsifier.** Reachable: EfficientNet (and ResNet, if run) does not beat the
-DINOv2-class timm backbone on CRISPR PA. Then “conv nets are better at
-morphology texture” is not supported *under this protocol*. Not reachable:
-re-ranking paper Figure 5’s stacked DINOv2 row.
+**Falsifier.** Reachable: EfficientNetV2-XL does not beat the DINOv2-class
+timm backbone on CRISPR PA. Then “conv nets are better at morphology texture”
+is not supported *under this protocol*. Not reachable: re-ranking paper
+Figure 5’s stacked DINOv2 row.
 
 **Status:** open
 
@@ -530,6 +533,45 @@ replication.
 **Falsifier.** Not reachable here. A later analogue would falsify the
 “insensitive readout” arm if cell-crop convnets show the same small MQ
 delta as grid ViTs.
+
+**Status:** open
+
+**Decision:** 2026-09-11 — not tested in this study. No Raw/HQ/MQ/D20 re-benchmark. MQ-only timm scores are not a Table 1 analogue. Status stays `open` (observational; not falsified by omission).
+
+---
+
+## H14 — Default 224 px cell windows are not cell-scale
+
+**Claim.** Campaign cell crops inherit the paper grid tile (`crop_size=224`)
+unless `--crop-size` is set. A 224 px centroid window is large versus a JUMP
+cell: extra neighbor/context enters the crop, and `cell_fixed` drops any
+window that leaves the FOV. Grid `tile_size` (H3, H9) does not test this.
+On EfficientNet-B0, grid `tile_size` already *is* the native window because
+convs do not resize; that is a different axis from a cell-centered window.
+
+**Why it would bias the ranking.** A cell-vs-grid comparison at 224 px can
+fail because the “cell” crop is still a large patch, not because cell
+inductive bias is absent. Edge-cell dropout also changes which instances
+enter the well profile. Wave 3 CELL/BBOX would then score the wrong window.
+
+**What the paper / JUMP_lite / this repo actually did.** Paper embeddings use
+Aliby `kind: crop` at model `tile_size` (224 / 256 / 448), not instance
+windows. This repo: `--crop-size` is independent of `tile_size`
+(`src/jumpbench/embed/generate.py`); `cell_fixed` skips out-of-FOV windows
+(`src/jumpbench/embed/crops.py`). Campaign B0 and Wave 3 CELL default to 224.
+
+**Testability:** in-scope. 4-site `cell_fixed` only. Grid native-window
+sweep stays T256/T448 (H3, H9).
+
+**Planned test.** On Run1 4-site CRISPR, `--crop cell_fixed` at **96** and
+**128** (Wave 2.5) vs CELL@224 (Wave 3) and vs B0 grid. Same channel recipe,
+PCA/TVN, CRISPR PA. Record `n_objects_skipped_edge` and cells kept in
+provenance. If C96 or C128 beats CELL@224 by \|ΔNAP\| ≥ 0.03, Wave 3
+CELL/BBOX inherit that `crop_size`.
+
+**Falsifier.** Reachable: CRISPR PA is stable across 96 / 128 / 224
+(`|ΔNAP| < 0.03` vs CELL@224). Then window size is not first-order *for
+timm cell crops*. Grid remainder/tile size stays H3/H9.
 
 **Status:** open
 

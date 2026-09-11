@@ -107,6 +107,7 @@ def mask_sites(
     max_wells: int | None = None,
     sources: list[str] | None = None,
     plates: list[str] | None = None,
+    batches: list[str] | None = None,
     site_keys: list[str] | None = None,
 ) -> pl.DataFrame:
     """Frozen JUMP-lite 4-site keys, optionally restricted to CRISPR wells."""
@@ -118,6 +119,7 @@ def mask_sites(
             max_wells=max_wells,
             sources=sources,
             plates=plates,
+            batches=batches,
             site_keys=site_keys,
         )
         out = sites.join(wells.select(JOIN_WELL), on=JOIN_WELL, how="inner")
@@ -130,6 +132,7 @@ def mask_sites(
             max_wells=max_wells,
             sources=sources,
             plates=plates,
+            batches=batches,
             site_keys=site_keys,
         )
     raise ValueError(f"subset must be 'crispr' or 'all', got {subset!r}")
