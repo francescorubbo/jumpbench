@@ -44,7 +44,8 @@ That ranking is **not** an apples-to-apples embedding comparison:
    Mito/ER/DNA/AGP (`rybg`). Both recipes are in `configs/models.yaml`.
 
 If CellProfiler still wins after (1) and (2) are equalized, that is a much
-stronger result. This repo is built to run that check.
+stronger result. This repo is built to run that check. Living preregistration
+of these and further ranking-fairness claims: [docs/hypotheses.md](docs/hypotheses.md).
 
 ## What you control
 
@@ -201,6 +202,8 @@ jumpbench smoke
 ```text
 configs/           model cards, S3 paths, processing presets
 docs/protocol.md   exact PA/PC / fairness rules
+docs/hypotheses.md living ranking-fairness preregistration
+AGENTS.md          study constraints for agents working in this repo
 metadata/          frozen JUMP-lite v1.0 cohort
 src/jumpbench/     download → embed → aggregate → process → evaluate
 tests/             channel recipes, tiling, aggregation, fairness flags
