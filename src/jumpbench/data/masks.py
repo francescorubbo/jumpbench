@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import sys
+from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import polars as pl
 from botocore.exceptions import ClientError
+from tqdm import tqdm
 
 from jumpbench.config import load_data_config
 from jumpbench.data.metadata import (
@@ -173,12 +177,23 @@ def _cache_files(cache_dir: Path) -> tuple[Path, Path, Path]:
     return cache_dir / META_KEY, cache_dir / CHUNK_KEY, cache_dir / MISSING_NAME
 
 
+def _cache_status(cache_dir: Path) -> str:
+    """``complete`` (bytes on disk), ``missing`` (cached 404), or ``absent``."""
+    meta_path, chunk_path, missing_path = _cache_files(cache_dir)
+    if meta_path.exists() and chunk_path.exists():
+        return "complete"
+    if missing_path.exists():
+        return "missing"
+    return "absent"
+
+
 def _read_cached_mask(cache_dir: Path) -> tuple[bool, np.ndarray | None]:
     """``(True, array|None)`` on a complete cache entry; ``(False, None)`` on a miss."""
-    meta_path, chunk_path, missing_path = _cache_files(cache_dir)
-    if missing_path.exists() and not (meta_path.exists() and chunk_path.exists()):
+    status = _cache_status(cache_dir)
+    if status == "missing":
         return True, None
-    if meta_path.exists() and chunk_path.exists():
+    if status == "complete":
+        meta_path, chunk_path, _missing = _cache_files(cache_dir)
         return True, decode_mask_array(meta_path.read_bytes(), chunk_path.read_bytes())
     return False, None
 
@@ -232,3 +247,98 @@ def load_mask(
     if cache_dir is not None:
         _write_cached_mask(cache_dir, metadata, chunk)
     return decode_mask_array(metadata, chunk)
+
+
+def cache_mask(
+    site_key: str,
+    object_type: str = "cells",
+    codec: str = DEFAULT_MASK_CODEC,
+    cfg: dict[str, Any] | None = None,
+    client=None,
+    *,
+    cache_root: Path | None = None,
+) -> str:
+    """Ensure one site is in ``data/masks/``. Does not decode.
+
+    Returns ``hit`` (already complete), ``missing`` (cached 404), or ``fetched``.
+    """
+    cache_dir = mask_cache_dir(
+        site_key, object_type=object_type, codec=codec, cache_root=cache_root, cfg=cfg
+    )
+    status = _cache_status(cache_dir)
+    if status == "complete":
+        return "hit"
+    if status == "missing":
+        return "missing"
+    keys = mask_s3_keys(site_key, object_type=object_type, codec=codec, cfg=cfg)
+    try:
+        metadata = read_s3_bytes(GALLERY_BUCKET, keys["metadata"], client=client)
+        chunk = read_s3_bytes(GALLERY_BUCKET, keys["chunk"], client=client)
+    except ClientError as exc:
+        if _is_missing(exc):
+            _write_cached_missing(cache_dir)
+            return "missing"
+        raise
+    _write_cached_mask(cache_dir, metadata, chunk)
+    return "fetched"
+
+
+def cache_masks(
+    site_keys: Iterable[str],
+    object_type: str = "cells",
+    codec: str = DEFAULT_MASK_CODEC,
+    cfg: dict[str, Any] | None = None,
+    *,
+    cache_root: Path | None = None,
+    jobs: int = 16,
+    show_progress: bool = True,
+) -> dict[str, int]:
+    """Prefetch Cellpose masks in parallel so embed is not blocked on S3."""
+    keys = list(dict.fromkeys(site_keys))
+    todo: list[str] = []
+    n_hit = 0
+    n_missing = 0
+    for key in keys:
+        cache_dir = mask_cache_dir(
+            key, object_type=object_type, codec=codec, cache_root=cache_root, cfg=cfg
+        )
+        status = _cache_status(cache_dir)
+        if status == "complete":
+            n_hit += 1
+        elif status == "missing":
+            n_missing += 1
+        else:
+            todo.append(key)
+
+    n_fetched = 0
+    workers = max(1, int(jobs))
+    if todo:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [
+                pool.submit(
+                    cache_mask,
+                    key,
+                    object_type,
+                    codec,
+                    cfg,
+                    cache_root=cache_root,
+                )
+                for key in todo
+            ]
+            iterator = as_completed(futures)
+            if show_progress:
+                iterator = tqdm(iterator, total=len(futures), desc="cache-masks", file=sys.stderr)
+            for fut in iterator:
+                result = fut.result()
+                if result == "fetched":
+                    n_fetched += 1
+                elif result == "missing":
+                    n_missing += 1
+                else:
+                    n_hit += 1
+    return {
+        "n": len(keys),
+        "hit": n_hit,
+        "fetched": n_fetched,
+        "missing": n_missing,
+    }

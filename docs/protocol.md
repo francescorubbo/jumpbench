@@ -56,6 +56,9 @@ Resolved from `configs/models.yaml`:
 5. Non-overlapping `crop` tiles of `crop_size` (Aliby `kind: crop`; remainder dropped).
 6. For `preprocess_scope: tile` (`timm`), apply `preprocess` independently on each crop, then optional ViT resize.
 7. Forward through the backend (`checkpoint`, `architecture`, `pretrained`, `batch_size`, `device`).
+   `runtime.device=auto` picks CUDA, then Apple MPS, then CPU. Cell-crop runs
+   prefetch masks into `data/masks/` (`jumpbench download-masks`) so S3 is not
+   on the GPU critical path.
 8. Write per-site features + `provenance.json`.
 
 Override any of this without editing YAML:

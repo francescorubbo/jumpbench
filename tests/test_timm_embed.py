@@ -100,3 +100,21 @@ def test_timm_vit_resizes_via_embed_tiles():
     assert feats.shape == (1, int(backend.model.num_features))
     assert extra["tile_y"].shape[0] == 1
     assert np.isfinite(feats).all()
+
+
+def test_torch_device_auto_prefers_cuda_then_mps():
+    pytest.importorskip("torch")
+    import torch
+
+    from jumpbench.embed.backends import _torch_device
+
+    assert _torch_device("cpu").type == "cpu"
+    monkey_cuda = torch.cuda.is_available()
+    if monkey_cuda:
+        assert _torch_device("auto").type == "cuda"
+        return
+    mps = getattr(torch.backends, "mps", None)
+    if mps is not None and mps.is_available():
+        assert _torch_device("auto").type == "mps"
+    else:
+        assert _torch_device("auto").type == "cpu"

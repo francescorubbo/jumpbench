@@ -38,12 +38,23 @@ def standard(image: np.ndarray, eps: float = 1e-8) -> np.ndarray:
 def percentile_minmax(
     image: np.ndarray, low: float = 1.0, high: float = 99.0, eps: float = 1e-8
 ) -> np.ndarray:
-    """Map each channel from [low, high] percentiles to [0, 1]. Image is (C, H, W)."""
+    """Map each channel from [low, high] percentiles to [0, 1].
+
+    Accepts (C, H, W) or a stack of crops (N, C, H, W); N is independent.
+    """
+    if image.ndim not in (3, 4):
+        raise ValueError(f"Expected (C,H,W) or (N,C,H,W), got {image.shape}")
+    squeeze = image.ndim == 3
     out = image.astype(np.float32, copy=True)
-    for c in range(out.shape[0]):
-        lo, hi = np.percentile(out[c], [low, high])
-        out[c] = np.clip((out[c] - lo) / (hi - lo + eps), 0.0, 1.0)
-    return out
+    if squeeze:
+        out = out[None]
+    n_tiles, n_channels, height, width = out.shape
+    flat = out.reshape(n_tiles, n_channels, -1)
+    lo = np.percentile(flat, low, axis=-1, keepdims=True)
+    hi = np.percentile(flat, high, axis=-1, keepdims=True)
+    scaled = np.clip((flat - lo) / (hi - lo + eps), 0.0, 1.0)
+    scaled = scaled.reshape(n_tiles, n_channels, height, width)
+    return scaled[0] if squeeze else scaled
 
 
 OPS = {
@@ -74,4 +85,7 @@ def apply_preprocess_tiles(tiles: np.ndarray, steps: list[dict] | None) -> np.nd
         raise ValueError(f"Expected (N,C,H,W), got {tiles.shape}")
     if tiles.shape[0] == 0 or not steps:
         return tiles
+    if len(steps) == 1 and steps[0].get("op") == "percentile_minmax":
+        kwargs = {k: v for k, v in steps[0].items() if k != "op"}
+        return percentile_minmax(tiles, **kwargs)
     return np.stack([apply_preprocess(tile, steps) for tile in tiles], axis=0)

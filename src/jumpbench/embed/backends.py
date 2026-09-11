@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from contextlib import nullcontext
 from typing import Any
 
 import numpy as np
@@ -51,9 +52,23 @@ class DummyBackend(EmbeddingBackend):
 def _torch_device(spec: str):
     import torch
 
-    if spec == "auto":
-        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    return torch.device(spec)
+    requested = (spec or "auto").lower()
+    if requested == "auto":
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+        mps = getattr(torch.backends, "mps", None)
+        if mps is not None and mps.is_available():
+            return torch.device("mps")
+        return torch.device("cpu")
+    return torch.device(requested)
+
+
+def _inference_autocast(device):
+    import torch
+
+    if device.type in {"cuda", "mps"}:
+        return torch.autocast(device_type=device.type, dtype=torch.float16)
+    return nullcontext()
 
 
 class DinoV2Backend(EmbeddingBackend):
@@ -205,6 +220,11 @@ class TimmBackend(EmbeddingBackend):
             self.resize_to = None
         self.model = timm.create_model(arch, **create_kw)
         self.model.eval().to(device)
+        self.channels_last = device.type == "cuda" and self.resize_to is None
+        if self.channels_last:
+            import torch
+
+            torch.backends.cudnn.benchmark = True
         self.batch_size = int(card.get("runtime", {}).get("batch_size", 16))
         n_channels = len(card.get("channels") or [])
         num_features = getattr(self.model, "num_features")
@@ -215,20 +235,26 @@ class TimmBackend(EmbeddingBackend):
     def embed_tiles(self, tiles: np.ndarray) -> np.ndarray:
         import torch
 
-        x = torch.from_numpy(tiles.astype(np.float32, copy=False))
-        channel_feats = []
-        n_channels = x.shape[1]
-        with torch.inference_mode():
-            for c in range(n_channels):
-                outs = []
-                for start in range(0, len(x), self.batch_size):
-                    ch = x[start : start + self.batch_size, c : c + 1].repeat(1, 3, 1, 1)
-                    feats = self.model(ch.to(self.device))
-                    if isinstance(feats, dict):
-                        feats = feats.get("x_norm_clstoken", next(iter(feats.values())))
-                    outs.append(feats.detach().cpu().numpy())
-                channel_feats.append(np.concatenate(outs, axis=0))
-        return np.concatenate(channel_feats, axis=1)
+        n_tiles, n_channels, height, width = tiles.shape
+        gray = torch.from_numpy(np.ascontiguousarray(tiles, dtype=np.float32)).reshape(
+            n_tiles * n_channels, 1, height, width
+        )
+        if self.device.type == "cuda":
+            gray = gray.pin_memory()
+        outs = []
+        with torch.inference_mode(), _inference_autocast(self.device):
+            for start in range(0, gray.shape[0], self.batch_size):
+                sl = gray[start : start + self.batch_size]
+                sl = sl.to(self.device, non_blocking=self.device.type == "cuda")
+                rgb = sl.expand(-1, 3, -1, -1).contiguous()
+                if self.channels_last:
+                    rgb = rgb.contiguous(memory_format=torch.channels_last)
+                feats = self.model(rgb)
+                if isinstance(feats, dict):
+                    feats = feats.get("x_norm_clstoken", next(iter(feats.values())))
+                outs.append(feats.float().cpu())
+        feat = torch.cat(outs, dim=0).reshape(n_tiles, n_channels, -1)
+        return feat.reshape(n_tiles, -1).numpy()
 
 
 BACKENDS = {

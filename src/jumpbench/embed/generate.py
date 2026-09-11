@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 from jumpbench.config import channel_indices, resolve_model
 from jumpbench.data.images import iter_local_sites, load_site_images, site_has_images
-from jumpbench.data.masks import DEFAULT_MASK_CODEC, load_mask, mask_sites
+from jumpbench.data.masks import DEFAULT_MASK_CODEC, cache_masks, load_mask, mask_sites
 from jumpbench.data.metadata import parse_site_key, well_id_from_site_key
 from jumpbench.embed.backends import build_backend
 from jumpbench.embed.crops import crop_cells_bbox, crop_cells_fixed, resize_tiles
@@ -426,8 +426,27 @@ def generate_embeddings(
     if not keys:
         raise FileNotFoundError(f"No sites found under {images_root}")
 
+    if crop in CELL_CROPS:
+        jobs = int(card.get("runtime", {}).get("num_workers") or 16)
+        _status(
+            f"Caching {len(keys)} {mask_object} masks ({mask_codec}) before embed (jobs={jobs})"
+        )
+        cached = cache_masks(
+            keys,
+            object_type=mask_object,
+            codec=mask_codec,
+            jobs=jobs,
+        )
+        _status(
+            f"Mask cache: {cached['hit']} hit, {cached['fetched']} fetched, "
+            f"{cached['missing']} missing"
+        )
+
     _status(f"Building backend for {card['name']} ({len(keys)} sites)")
     backend = build_backend(card)
+    device = getattr(backend, "device", None)
+    if device is not None:
+        _status(f"backend device={device}")
     frames = []
     n_skipped_no_mask = 0
     n_skipped_edge = 0
@@ -469,6 +488,9 @@ def generate_embeddings(
             "checkpoint": card.get("checkpoint"),
             "architecture": card.get("architecture"),
             "pretrained": card.get("pretrained"),
+            "device": str(
+                getattr(backend, "device", None) or card.get("runtime", {}).get("device")
+            ),
             "crop": crop,
             "crop_margin": int(crop_margin) if crop == "cell_bbox" else None,
             "mask_object": mask_object if crop in CELL_CROPS else None,
