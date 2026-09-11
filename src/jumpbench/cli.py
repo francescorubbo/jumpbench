@@ -13,7 +13,7 @@ from jumpbench.data.compress import CODECS, DEFAULT_CODEC
 from jumpbench.data.download import download_paper_cellprofiler, download_tiffs
 from jumpbench.data.images import default_images_root, migrate_flat_images
 from jumpbench.data.index import build_tiff_index, site_set_summary, write_tiff_index
-from jumpbench.embed.generate import generate_embeddings
+from jumpbench.embed.generate import CROP_MODES, generate_embeddings
 from jumpbench.eval.compare import compare_runs
 from jumpbench.eval.metrics import PAPER_PA_CRISPR, evaluate_path
 from jumpbench.paths import repo_root, resolve
@@ -159,6 +159,16 @@ def cmd_download_paper_cp(args: argparse.Namespace) -> int:
 
 def cmd_embed(args: argparse.Namespace) -> int:
     cfg = apply_overrides(load_models_config(), args.overrides)
+    crop = args.crop
+    subset = args.subset
+    if crop != "grid" and subset is None:
+        subset = "crispr"
+    if args.dry_run:
+        print(
+            f"Dry-run: {args.preview_n} {args.crop} crops from {args.images} (no embeddings)",
+            file=sys.stderr,
+            flush=True,
+        )
     out = generate_embeddings(
         model=args.model,
         images_root=Path(args.images),
@@ -166,6 +176,14 @@ def cmd_embed(args: argparse.Namespace) -> int:
         site_keys=args.site or None,
         models_cfg=cfg,
         codec=args.codec,
+        crop=crop,
+        mask_object=args.mask_object,
+        crop_margin=args.crop_margin,
+        crop_size=args.crop_size,
+        subset=subset,
+        max_wells=args.max_wells,
+        dry_run=args.dry_run,
+        preview_n=args.preview_n,
     )
     print(out)
     return 0
@@ -497,6 +515,55 @@ def build_parser() -> argparse.ArgumentParser:
         "--codec",
         default=DEFAULT_CODEC,
         help="Label for the embedding output folder (match download --codec)",
+    )
+    e.add_argument(
+        "--crop",
+        choices=CROP_MODES,
+        default="grid",
+        help="grid = paper non-overlapping tiles. cell_fixed / cell_bbox = Cellpose crops.",
+    )
+    e.add_argument(
+        "--object",
+        dest="mask_object",
+        choices=("cells", "nuclei"),
+        default="cells",
+        help="Cellpose store for cell crops (ignored for --crop grid)",
+    )
+    e.add_argument(
+        "--crop-margin",
+        type=int,
+        default=16,
+        help="Pixels added to each bbox side for --crop cell_bbox",
+    )
+    e.add_argument(
+        "--crop-size",
+        type=int,
+        default=None,
+        help="Native crop window in pixels (default: the model's tile_size). "
+        "Inference resizes to tile_size if they differ.",
+    )
+    e.add_argument(
+        "--subset",
+        choices=("all", "crispr"),
+        default=None,
+        help="Cell crops default to CRISPR 4-site keys. Ignored for --crop grid.",
+    )
+    e.add_argument(
+        "--max-wells",
+        type=int,
+        default=None,
+        help="Cap wells for cell-crop site selection (smoke runs)",
+    )
+    e.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Write a PNG montage of --preview-n crops; do not run the embedding model",
+    )
+    e.add_argument(
+        "--preview-n",
+        type=int,
+        default=32,
+        help="Max crops in a --dry-run montage (default 32)",
     )
     e.add_argument("--site", action="append", default=[])
     _add_overrides(e)

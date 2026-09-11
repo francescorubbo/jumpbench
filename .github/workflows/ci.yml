@@ -35,7 +35,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Type check
-        run: uv run --frozen --extra dev ty check
+        run: uv run --frozen --extra dev --extra images ty check
 
   pytest:
     name: pytest
