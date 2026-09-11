@@ -42,6 +42,7 @@ TB of S3 TIFF and ~200–300 GB of JPEG XL MQ on disk.
 | CellProfiler paper | `jumpbench download-paper-cp` then `align-paper-cp` | Assembled CPG profiles, **6–9 sites/well** (S1.2.7) |
 | CellProfiler fair | `cp_measure` on the same pixels as the embeddings | Not reported at JUMP-lite scale |
 | DINOv2 / MorphEM / OpenPhenom / SubCell | `jumpbench embed --model …` | Paper: 4 sites. This repo default: **all Orig FOVs** |
+| timm (bag-of-channels) | `jumpbench embed --model timm` | Not in the paper. Per-crop percentile min-max, RGB-repeat per stain, swappable timm backbone. |
 | Cell count | object-count columns only | Same |
 
 ## Embedding generation (controllable)
@@ -51,10 +52,14 @@ Resolved from `configs/models.yaml`:
 1. Load site as `(C,H,W)` uint16 from JPEG XL / JPEG / TIFF, channel order **AGP, DNA, ER, Mito, RNA**.
 2. Select `channels` for the active `channel_recipe`.
 3. Optional `model_channel_order` reorder (SubCell `rybg`).
-4. Apply `preprocess` ops in order (clip / minmax / 8-bit / per-tile `standard`).
-5. Non-overlapping `crop` tiles of `tile_size` (Aliby `kind: crop`; remainder dropped).
-6. Forward through the backend (`checkpoint`, `pretrained`, `batch_size`, `device`).
-7. Write per-site features + `provenance.json`.
+4. For `preprocess_scope: site` (default), apply `preprocess` ops on the FOV.
+5. Non-overlapping `crop` tiles of `crop_size` (Aliby `kind: crop`; remainder dropped).
+6. For `preprocess_scope: tile` (`timm`), apply `preprocess` independently on each crop, then optional ViT resize.
+7. Forward through the backend (`checkpoint`, `architecture`, `pretrained`, `batch_size`, `device`).
+   `runtime.device=auto` picks CUDA, then Apple MPS, then CPU. Cell-crop runs
+   prefetch masks into `data/masks/` (`jumpbench download-masks`) so S3 is not
+   on the GPU critical path.
+8. Write per-site features + `provenance.json`.
 
 Override any of this without editing YAML:
 

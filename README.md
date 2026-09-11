@@ -52,7 +52,8 @@ Every embedding run writes `provenance.json` next to the parquet:
 
 - checkpoint / architecture / `pretrained`
 - channel recipe (`jump_lite_as_run` vs `paper_table_s3`) and reorder
-- preprocess ops (clip percentiles, 8-bit, minmax, per-channel `standard`)
+- preprocess ops (clip percentiles, 8-bit, minmax, per-channel `standard`, percentile min-max)
+- `preprocess_scope` (`site` on the FOV vs `tile` per crop)
 - tile size, non-overlapping crop
 - batch size, device, seed
 - tile and site aggregation (`median` default, `mean` optional)
@@ -85,7 +86,7 @@ pip install -e ".[images,cellprofiler]"
 JUMP TIFFs streamed from S3 → JPEG XL on disk
         │
         ▼
-jumpbench embed --model {dinov2,morphem,openphenom,subcell,dummy}
+jumpbench embed --model {dinov2,morphem,openphenom,subcell,timm,dummy}
         │  per-site tiles, provenance.json
         ▼
 jumpbench aggregate --how median
@@ -169,6 +170,11 @@ jumpbench download-images --codec raw --max-wells 1
 # Assembled CellProfiler (~13.5 GB, 6–9 sites/well)
 jumpbench download-paper-cp --dry-run
 jumpbench download-paper-cp
+
+# Cellpose masks for --crop cell_fixed / cell_bbox (cached under data/masks/)
+jumpbench download-masks --max-wells 4
+# embed also prefetches any missing masks before the GPU loop
+jumpbench embed --model timm --crop cell_fixed --images data/images
 ```
 
 `--max-wells` defaults to 4 when `--sites all` and you pass no other filter.
@@ -179,6 +185,7 @@ jumpbench download-paper-cp
 |---|---|---|
 | Site / well / perturbation / RefChem tables | shipped | `metadata/jump_lite_v1_*.parquet` |
 | Original JUMP pixels | public now | `jumpbench download-images` streams TIFF, persists JPEG XL MQ |
+| Cellpose instance masks | public now | `jumpbench download-masks` (also prefetched by `--crop cell_*` embed) |
 | Assembled CellProfiler | public now ~13.5 GB | `jumpbench download-paper-cp` (`cpg0016-jump-assembled` v1.0c) |
 | JUMP-lite JPEG XL zarr (MQ 92 GB, HQ 238 GB, …) | CPG promotion mid-Sept 2026 | compression study only; not required for Figure 5-style raw embeddings |
 | Their per-site embeddings | CPG `workspace_dl/embeddings/` | optional; this repo regenerates them |

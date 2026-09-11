@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from contextlib import nullcontext
 from typing import Any
 
 import numpy as np
@@ -51,9 +52,23 @@ class DummyBackend(EmbeddingBackend):
 def _torch_device(spec: str):
     import torch
 
-    if spec == "auto":
-        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    return torch.device(spec)
+    requested = (spec or "auto").lower()
+    if requested == "auto":
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+        mps = getattr(torch.backends, "mps", None)
+        if mps is not None and mps.is_available():
+            return torch.device("mps")
+        return torch.device("cpu")
+    return torch.device(requested)
+
+
+def _inference_autocast(device):
+    import torch
+
+    if device.type in {"cuda", "mps"}:
+        return torch.autocast(device_type=device.type, dtype=torch.float16)
+    return nullcontext()
 
 
 class DinoV2Backend(EmbeddingBackend):
@@ -174,12 +189,81 @@ class SubCellBackend(EmbeddingBackend):
         return np.asarray(self.inner.embed(tiles), dtype=np.float32)
 
 
+def _timm_model_cfg(model) -> dict[str, Any]:
+    cfg = getattr(model, "pretrained_cfg", None) or getattr(model, "default_cfg", None) or {}
+    return dict(cfg)
+
+
+class TimmBackend(EmbeddingBackend):
+    """Bag-of-channels via timm: each stain is repeated to RGB, forwarded, concatenated."""
+
+    def __init__(self, card: dict[str, Any]):
+        super().__init__(card)
+        import timm
+
+        device = _torch_device(card.get("runtime", {}).get("device", "auto"))
+        self.device = device
+        arch = card.get("architecture", "resnet50")
+        pretrained = bool(card.get("pretrained", True))
+        probe = timm.create_model(arch, pretrained=False, num_classes=0)
+        cfg = _timm_model_cfg(probe)
+        del probe
+        create_kw: dict[str, Any] = {"pretrained": pretrained, "num_classes": 0}
+        if bool(cfg.get("fixed_input_size")):
+            input_size = cfg.get("input_size") or (3, 224, 224)
+            default_size = int(input_size[-1])
+            size = int(card.get("tile_size") or default_size)
+            if size != default_size:
+                create_kw["img_size"] = size
+            self.resize_to: int | None = size
+        else:
+            self.resize_to = None
+        self.model = timm.create_model(arch, **create_kw)
+        self.model.eval().to(device)
+        self.channels_last = device.type == "cuda" and self.resize_to is None
+        if self.channels_last:
+            import torch
+
+            torch.backends.cudnn.benchmark = True
+        self.batch_size = int(card.get("runtime", {}).get("batch_size", 16))
+        n_channels = len(card.get("channels") or [])
+        num_features = getattr(self.model, "num_features")
+        if not isinstance(num_features, int):
+            raise TypeError(f"timm model {arch!r} num_features is {type(num_features)}")
+        self.embedding_dim = n_channels * num_features
+
+    def embed_tiles(self, tiles: np.ndarray) -> np.ndarray:
+        import torch
+
+        n_tiles, n_channels, height, width = tiles.shape
+        gray = torch.from_numpy(np.ascontiguousarray(tiles, dtype=np.float32)).reshape(
+            n_tiles * n_channels, 1, height, width
+        )
+        if self.device.type == "cuda":
+            gray = gray.pin_memory()
+        outs = []
+        with torch.inference_mode(), _inference_autocast(self.device):
+            for start in range(0, gray.shape[0], self.batch_size):
+                sl = gray[start : start + self.batch_size]
+                sl = sl.to(self.device, non_blocking=self.device.type == "cuda")
+                rgb = sl.expand(-1, 3, -1, -1).contiguous()
+                if self.channels_last:
+                    rgb = rgb.contiguous(memory_format=torch.channels_last)
+                feats = self.model(rgb)
+                if isinstance(feats, dict):
+                    feats = feats.get("x_norm_clstoken", next(iter(feats.values())))
+                outs.append(feats.float().cpu())
+        feat = torch.cat(outs, dim=0).reshape(n_tiles, n_channels, -1)
+        return feat.reshape(n_tiles, -1).numpy()
+
+
 BACKENDS = {
     "dummy": DummyBackend,
     "dinov2": DinoV2Backend,
     "morphem": MorphEmBackend,
     "openphenom": OpenPhenomBackend,
     "subcell": SubCellBackend,
+    "timm": TimmBackend,
 }
 
 

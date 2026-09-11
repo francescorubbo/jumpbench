@@ -5,6 +5,7 @@ import pytest
 from botocore.exceptions import ClientError
 
 from jumpbench.data.masks import (
+    cache_masks,
     decode_mask_array,
     load_mask,
     mask_cache_dir,
@@ -122,6 +123,41 @@ def test_load_mask_cache_skips_s3_on_second_read(tmp_path, monkeypatch):
     cache_dir = mask_cache_dir(site, cache_root=tmp_path)
     assert (cache_dir / "zarr.json").exists()
     assert (cache_dir / "c/0/0/0").exists()
+
+
+def test_cache_masks_fetches_only_absents(tmp_path, monkeypatch):
+    zarr = pytest.importorskip("zarr")
+    from zarr.storage import MemoryStore
+
+    src = MemoryStore()
+    data = np.zeros((1, 8, 10), dtype=np.uint16)
+    data[0, 2:5, 3:7] = 3
+    arr = zarr.create_array(src, name="/", shape=data.shape, dtype="uint16", chunks=data.shape)
+    arr[:] = data
+    meta = src._store_dict["zarr.json"].to_bytes()
+    chunk = src._store_dict["c/0/0/0"].to_bytes()
+    n = {"n": 0}
+
+    def fake_read(_bucket, key, client=None):
+        n["n"] += 1
+        if key.endswith("zarr.json"):
+            return meta
+        return chunk
+
+    monkeypatch.setattr("jumpbench.data.masks.read_s3_bytes", fake_read)
+    cached = "source_13__20220914_Run1__CP-CC9-R1-01__A02__0"
+    todo = "source_13__20220914_Run1__CP-CC9-R1-01__A03__0"
+    assert load_mask(cached, cache_root=tmp_path) is not None
+    n["n"] = 0
+    stats = cache_masks(
+        [cached, todo, cached],
+        cache_root=tmp_path,
+        jobs=2,
+        show_progress=False,
+    )
+    assert stats == {"n": 2, "hit": 1, "fetched": 1, "missing": 0}
+    assert n["n"] == 2
+    assert (mask_cache_dir(todo, cache_root=tmp_path) / "zarr.json").exists()
 
 
 def test_decode_mask_array_roundtrip():

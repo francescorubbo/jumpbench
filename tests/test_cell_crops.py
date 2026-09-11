@@ -8,7 +8,7 @@ from jumpbench.cli import build_parser
 from jumpbench.config import apply_overrides, load_models_config, resolve_model
 from jumpbench.embed.backends import DummyBackend
 from jumpbench.embed.crops import crop_cells_bbox, crop_cells_fixed, resize_tiles
-from jumpbench.embed.generate import crop_site, embed_site
+from jumpbench.embed.generate import crop_site, embed_site, generate_embeddings
 from jumpbench.profiles.aggregate import aggregate_sites_to_wells
 
 
@@ -169,6 +169,49 @@ def test_embed_cli_crop_flags():
     )
     assert sized.crop_size == 96
     assert parser.parse_args(["embed", "--model", "dummy"]).crop_size is None
+
+
+def test_download_masks_cli_flags():
+    parser = build_parser()
+    args = parser.parse_args(
+        ["download-masks", "--subset", "all", "--object", "nuclei", "--jobs", "8"]
+    )
+    assert args.subset == "all"
+    assert args.mask_object == "nuclei"
+    assert args.jobs == 8
+    assert args.codec == "jpegxl_lossy_mq"
+
+
+def test_generate_embeddings_cell_crop_prefetches_masks(tmp_path, monkeypatch):
+    image = np.zeros((5, 32, 32), dtype=np.uint16)
+    mask = np.zeros((32, 32), dtype=np.uint16)
+    _blob(mask, 1, 8, 16, 8, 16)
+    seen: dict = {}
+    monkeypatch.setattr("jumpbench.embed.generate.load_site_images", lambda *_a, **_k: image)
+    monkeypatch.setattr(
+        "jumpbench.embed.generate.iter_embed_sites",
+        lambda *_a, **_k: iter(["s__b__p__A01__0"]),
+    )
+
+    def fake_cache(keys, **kwargs):
+        seen["keys"] = list(keys)
+        seen["object"] = kwargs.get("object_type")
+        return {"n": 1, "hit": 0, "fetched": 1, "missing": 0}
+
+    monkeypatch.setattr("jumpbench.embed.generate.cache_masks", fake_cache)
+    monkeypatch.setattr("jumpbench.embed.generate.load_mask", lambda *_a, **_k: mask)
+    cfg = apply_overrides(load_models_config(), ["models.dummy.tile_size=16"])
+    out = generate_embeddings(
+        "dummy",
+        tmp_path,
+        tmp_path / "embeddings",
+        models_cfg=cfg,
+        crop="cell_fixed",
+        codec="jpegxl_mq",
+    )
+    assert seen["keys"] == ["s__b__p__A01__0"]
+    assert seen["object"] == "cells"
+    assert out.exists()
 
 
 def test_aggregate_object_label_median_then_site():

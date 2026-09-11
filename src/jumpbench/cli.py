@@ -13,6 +13,13 @@ from jumpbench.data.compress import CODECS, DEFAULT_CODEC
 from jumpbench.data.download import download_paper_cellprofiler, download_tiffs
 from jumpbench.data.images import default_images_root, migrate_flat_images
 from jumpbench.data.index import build_tiff_index, site_set_summary, write_tiff_index
+from jumpbench.data.masks import (
+    DEFAULT_MASK_CODEC,
+    MASK_CODECS,
+    MASK_OBJECTS,
+    cache_masks,
+    mask_sites,
+)
 from jumpbench.embed.generate import CROP_MODES, generate_embeddings
 from jumpbench.eval.compare import compare_runs
 from jumpbench.eval.metrics import PAPER_PA_CRISPR, evaluate_path
@@ -153,6 +160,30 @@ def cmd_download_paper_cp(args: argparse.Namespace) -> int:
     print(
         "Assembled CellProfiler is 6–9 sites/well. "
         "Match that with --sites all (default) on embeddings."
+    )
+    return 0
+
+
+def cmd_download_masks(args: argparse.Namespace) -> int:
+    keys = mask_sites(
+        subset=args.subset,
+        max_wells=args.max_wells,
+        sources=args.source or None,
+        plates=getattr(args, "plate", None) or None,
+        site_keys=args.site or None,
+    )["Metadata_Site_Key"].to_list()
+    dest = Path(args.dest) if args.dest else None
+    stats = cache_masks(
+        keys,
+        object_type=args.mask_object,
+        codec=args.codec,
+        cache_root=dest,
+        jobs=args.jobs,
+    )
+    print(
+        f"masks {args.mask_object}/{args.codec}: {stats['n']} sites, "
+        f"{stats['hit']} hit, {stats['fetched']} fetched, {stats['missing']} missing"
+        + (f" → {dest}" if dest else "")
     )
     return 0
 
@@ -506,6 +537,26 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--dest", type=Path)
     c.add_argument("--dry-run", action="store_true")
     c.set_defaults(func=cmd_download_paper_cp)
+
+    dm = sub.add_parser(
+        "download-masks",
+        help="Prefetch JUMP-lite Cellpose masks into data/masks/ (skip S3 during embed)",
+    )
+    dm.add_argument("--subset", choices=("crispr", "all"), default="crispr")
+    dm.add_argument("--max-wells", type=int, default=None)
+    dm.add_argument("--site", action="append", default=[])
+    dm.add_argument("--source", action="append", default=[])
+    dm.add_argument("--plate", action="append", default=[])
+    dm.add_argument(
+        "--object",
+        dest="mask_object",
+        choices=MASK_OBJECTS,
+        default="cells",
+    )
+    dm.add_argument("--codec", choices=MASK_CODECS, default=DEFAULT_MASK_CODEC)
+    dm.add_argument("--dest", type=Path, help="Cache root (default: data/masks)")
+    dm.add_argument("--jobs", type=int, default=16, help="Parallel GET workers")
+    dm.set_defaults(func=cmd_download_masks)
 
     e = sub.add_parser("embed", help="Generate per-site embeddings with an explicit model card")
     e.add_argument("--model", required=True)

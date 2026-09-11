@@ -5,7 +5,13 @@ import polars as pl
 import pytest
 
 from jumpbench.config import apply_overrides, load_models_config, resolve_model
-from jumpbench.embed.preprocess import apply_preprocess, clip_percentile, standard
+from jumpbench.embed.preprocess import (
+    apply_preprocess,
+    apply_preprocess_tiles,
+    clip_percentile,
+    percentile_minmax,
+    standard,
+)
 from jumpbench.embed.tiling import crop_tiles, reorder_channels, select_channels
 from jumpbench.profiles.aggregate import aggregate_sites_to_wells
 from jumpbench.profiles.cellprofiler import comparison_is_fair
@@ -37,6 +43,44 @@ def test_clip_percentile_and_standard():
     assert clipped.max() < 1000
     normed = standard(np.ones((1, 4, 4), dtype=np.float32) * 3)
     assert abs(float(normed.mean())) < 1e-5
+
+
+def test_percentile_minmax_maps_percentiles_to_unit_interval():
+    rng = np.random.default_rng(0)
+    image = rng.normal(50.0, 10.0, size=(2, 32, 32)).astype(np.float32)
+    image[0, 0, 0] = 10_000
+    out = percentile_minmax(image, 1, 99)
+    assert out.shape == image.shape
+    assert out.dtype == np.float32
+    assert out.min() >= 0.0
+    assert out.max() <= 1.0
+
+
+def test_percentile_minmax_tiles_are_independent():
+    dim = np.linspace(0.0, 100.0, 64, dtype=np.float32).reshape(1, 8, 8)
+    bright = np.linspace(500.0, 600.0, 64, dtype=np.float32).reshape(1, 8, 8)
+    tiles = np.stack([dim, bright], axis=0)
+    out = apply_preprocess_tiles(tiles, [{"op": "percentile_minmax", "low": 1, "high": 99}])
+    assert out.shape == tiles.shape
+    assert out[0].min() == pytest.approx(0.0, abs=0.05)
+    assert out[0].max() == pytest.approx(1.0, abs=0.05)
+    assert out[1].min() == pytest.approx(0.0, abs=0.05)
+    assert out[1].max() == pytest.approx(1.0, abs=0.05)
+    # Site-wide min-max would pin the dim crop near 0 and the bright crop near 1.
+    assert float(out[0].mean()) == pytest.approx(float(out[1].mean()), abs=0.05)
+
+
+def test_timm_card_is_bag_of_channels_per_crop():
+    as_run = resolve_model("timm")
+    paper = resolve_model(
+        "timm", apply_overrides(load_models_config(), ["channel_recipe=paper_table_s3"])
+    )
+    assert as_run["channels"] == ["AGP", "DNA", "ER", "Mito", "RNA"]
+    assert paper["channels"] == ["DNA", "AGP", "Mito", "RNA", "ER"]
+    assert as_run["preprocess_scope"] == "tile"
+    assert as_run["architecture"] == "resnet50"
+    assert as_run["preprocess"] == [{"op": "percentile_minmax", "low": 1, "high": 99}]
+    assert resolve_model("dinov2")["preprocess_scope"] == "site"
 
 
 def test_apply_preprocess_openphenom_order():

@@ -73,4 +73,4 @@ python-version = "3.11"
 
 [tool.ty.analysis]
 # Torch / transformers live in the optional `embed` extra, not the default env.
-allowed-unresolved-imports = ["torch", "torch.**", "transformers", "transformers.**"]
+allowed-unresolved-imports = ["torch", "torch.**", "transformers", "transformers.**", "timm", "timm.**"]
