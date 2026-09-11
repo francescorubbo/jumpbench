@@ -131,12 +131,12 @@ def test_resolve_cell_sites_probes_paths_not_tree(tmp_path, monkeypatch):
     tifffile.imwrite(path, np.zeros((8, 8), dtype=np.uint16))
 
     monkeypatch.setattr(
-        "jumpbench.embed.generate.mask_sites",
+        "jumpbench.embed.sites.mask_sites",
         lambda **_k: pl.DataFrame({"Metadata_Site_Key": [site, missing]}),
     )
 
     def _boom(_root):
         raise AssertionError("must not walk the image tree")
 
-    monkeypatch.setattr("jumpbench.embed.generate.iter_local_sites", _boom)
+    monkeypatch.setattr("jumpbench.embed.sites.iter_local_sites", _boom)
     assert resolve_embed_sites(tmp_path, "cell_fixed") == [site]

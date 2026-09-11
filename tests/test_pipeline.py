@@ -78,9 +78,24 @@ def test_timm_card_is_bag_of_channels_per_crop():
     assert as_run["channels"] == ["AGP", "DNA", "ER", "Mito", "RNA"]
     assert paper["channels"] == ["DNA", "AGP", "Mito", "RNA", "ER"]
     assert as_run["preprocess_scope"] == "tile"
-    assert as_run["architecture"] == "resnet50"
+    assert as_run["architecture"] == "tf_efficientnet_b0"
     assert as_run["preprocess"] == [{"op": "percentile_minmax", "low": 1, "high": 99}]
     assert resolve_model("dinov2")["preprocess_scope"] == "site"
+
+
+def test_timm_named_channel_recipes():
+    cfg = load_models_config()
+    five = resolve_model("timm", apply_overrides(cfg, ["channel_recipe=five_stain"]))
+    dino = resolve_model("timm", apply_overrides(cfg, ["channel_recipe=dinov2_as_run"]))
+    table = resolve_model("timm", apply_overrides(cfg, ["channel_recipe=table_s3_dinov2"]))
+    sub = resolve_model("timm", apply_overrides(cfg, ["channel_recipe=subcell_as_run"]))
+    assert five["channels"] == ["AGP", "DNA", "ER", "Mito", "RNA"]
+    assert dino["channels"] == ["AGP", "DNA", "ER"]
+    assert table["channels"] == ["DNA", "AGP", "Mito"]
+    assert sub["channels"] == ["AGP", "DNA", "ER", "Mito"]
+    leftover = resolve_model("timm", apply_overrides(cfg, ["channel_recipe=dinov2_as_run"]))
+    assert "dinov2_as_run" not in leftover
+    assert "jump_lite_as_run" not in leftover
 
 
 def test_apply_preprocess_openphenom_order():
@@ -104,6 +119,19 @@ def test_nonoverlapping_crops_drop_remainder():
     tiles, coords = crop_tiles(image, 224)
     assert tiles.shape == (4, 3, 224, 224)
     assert len(coords) == 4
+
+
+def test_grid_coverage_jump_fov():
+    from jumpbench.embed.tiling import grid_coverage
+
+    cov224 = grid_coverage(1080, 1280, 224)
+    assert cov224["n_tiles"] == 20
+    assert cov224["n_tiles_y"] == 4
+    assert cov224["n_tiles_x"] == 5
+    assert cov224["fov_frac"] == pytest.approx((4 * 224 * 5 * 224) / (1080 * 1280))
+    cov448 = grid_coverage(1080, 1280, 448)
+    assert cov448["n_tiles"] == 4
+    assert cov448["fov_frac"] < cov224["fov_frac"]
 
 
 def test_channel_select_and_reorder():

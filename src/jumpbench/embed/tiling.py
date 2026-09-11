@@ -26,6 +26,24 @@ def crop_tiles(image: np.ndarray, tile_size: int) -> tuple[np.ndarray, np.ndarra
     return np.stack(tiles, axis=0), np.asarray(coords, dtype=np.int32)
 
 
+def grid_coverage(height: int, width: int, tile_size: int) -> dict[str, float | int]:
+    """Tiles and FOV fraction kept by Aliby ``kind: crop`` (right/bottom remainder dropped)."""
+    if tile_size < 1:
+        raise ValueError(f"tile_size must be >= 1, got {tile_size}")
+    n_y = int(height) // int(tile_size)
+    n_x = int(width) // int(tile_size)
+    kept = n_y * int(tile_size) * n_x * int(tile_size)
+    total = int(height) * int(width)
+    return {
+        "image_height": int(height),
+        "image_width": int(width),
+        "n_tiles_y": n_y,
+        "n_tiles_x": n_x,
+        "n_tiles": n_y * n_x,
+        "fov_frac": (kept / total) if total else 0.0,
+    }
+
+
 def select_channels(image: np.ndarray, indices: list[int]) -> np.ndarray:
     return image[indices]
 

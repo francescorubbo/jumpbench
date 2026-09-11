@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 import warnings
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -11,18 +11,20 @@ import polars as pl
 from tqdm import tqdm
 
 from jumpbench.config import channel_indices, resolve_model
-from jumpbench.data.images import iter_local_sites, load_site_images, site_has_images
-from jumpbench.data.masks import DEFAULT_MASK_CODEC, cache_masks, load_mask, mask_sites
+from jumpbench.data.images import load_site_images
+from jumpbench.data.masks import DEFAULT_MASK_CODEC, cache_masks, load_mask
 from jumpbench.data.metadata import parse_site_key, well_id_from_site_key
 from jumpbench.embed.backends import build_backend
 from jumpbench.embed.crops import crop_cells_bbox, crop_cells_fixed, resize_tiles
 from jumpbench.embed.preprocess import apply_preprocess, apply_preprocess_tiles
 from jumpbench.embed.preview import montage_rgb, write_png
-from jumpbench.embed.tiling import crop_tiles, reorder_channels, select_channels
+from jumpbench.embed.sites import CELL_CROPS, iter_embed_sites
+from jumpbench.embed.tiling import crop_tiles, grid_coverage, reorder_channels, select_channels
 from jumpbench.provenance import now_iso, write_json
 
 CROP_MODES = ("grid", "cell_fixed", "cell_bbox")
-CELL_CROPS = ("cell_fixed", "cell_bbox")
+POOL_MODES = ("crop", "site")
+_SHARD_FLUSH = 64
 
 
 def _status(message: str) -> None:
@@ -190,71 +192,31 @@ def _long_rows(
     return pl.DataFrame(records)
 
 
-def iter_embed_sites(
-    images_root: Path,
-    crop: str,
-    *,
-    site_keys: Iterable[str] | None = None,
-    subset: str | None = None,
-    max_wells: int | None = None,
-) -> Iterator[str]:
-    """Yield sites that should be embedded. Cell crops probe paths; they do not walk the image tree."""
-    images_root = Path(images_root)
-    if crop == "grid":
-        if site_keys is not None:
-            yield from site_keys
-            return
-        _status(f"Scanning local sites under {images_root} (streaming, no pre-count)...")
-        n = 0
-        for key in iter_local_sites(images_root):
-            n += 1
-            if n == 1 or n % 1000 == 0:
-                _status(f"  found {n} local sites...")
-            yield key
-        _status(f"Found {n} local sites")
-        return
-
-    subset = subset or "crispr"
-    _status(f"Loading {subset} 4-site keys (no image-tree scan)...")
-    masked = mask_sites(
-        subset=subset,
-        max_wells=max_wells,
-        site_keys=list(site_keys) if site_keys else None,
-    )
-    candidates = masked["Metadata_Site_Key"].to_list()
-    if site_keys is not None:
-        wanted = set(site_keys)
-        candidates = [key for key in candidates if key in wanted]
-    _status(f"{len(candidates)} mask sites; probing which have local images...")
-    n_checked = 0
-    n_hit = 0
-    for key in candidates:
-        n_checked += 1
-        if n_checked == 1 or n_checked % 500 == 0:
-            _status(f"  probed {n_checked}/{len(candidates)} ({n_hit} local so far)")
-        if site_has_images(images_root, key):
-            n_hit += 1
-            if n_hit == 1:
-                _status(f"  first local site: {key}")
-            yield key
-    _status(f"{n_hit} of {len(candidates)} mask sites have local images")
-
-
 def resolve_embed_sites(
     images_root: Path,
     crop: str,
     *,
     site_keys: Iterable[str] | None = None,
     subset: str | None = None,
+    site_set: str = "all",
     max_wells: int | None = None,
+    sources: Iterable[str] | None = None,
+    plates: Iterable[str] | None = None,
+    batches: Iterable[str] | None = None,
 ) -> list[str]:
+    if crop in CELL_CROPS:
+        site_set = "jump_lite"
     return list(
         iter_embed_sites(
             images_root,
             crop,
             site_keys=site_keys,
             subset=subset,
+            site_set=site_set,
             max_wells=max_wells,
+            sources=sources,
+            plates=plates,
+            batches=batches,
         )
     )
 
@@ -378,6 +340,59 @@ def preview_crops(
     return montage_path
 
 
+def _pool_site_features(
+    feats: np.ndarray, extra: dict[str, np.ndarray]
+) -> tuple[np.ndarray, dict[str, np.ndarray]]:
+    n = int(feats.shape[0])
+    if n == 0:
+        return feats, extra
+    pooled = np.median(feats, axis=0, keepdims=True).astype(np.float32) if n > 1 else feats
+    return pooled, {"n_crops": np.asarray([n], dtype=np.int32)}
+
+
+def _completed_site_keys(run_dir: Path) -> set[str]:
+    done = run_dir / "completed_sites.txt"
+    if done.exists():
+        return {line for line in done.read_text().splitlines() if line}
+    out = run_dir / "site_embeddings.parquet"
+    if out.exists():
+        table = pl.read_parquet(out, columns=["site_key"])
+        return set(table["site_key"].to_list())
+    return set()
+
+
+def _flush_shard(
+    frames: list[pl.DataFrame],
+    shard_dir: Path,
+    shard_index: int,
+    completed_path: Path,
+    keys: list[str],
+) -> None:
+    shard_dir.mkdir(parents=True, exist_ok=True)
+    pl.concat(frames, how="diagonal").write_parquet(shard_dir / f"{shard_index:06d}.parquet")
+    with completed_path.open("a", encoding="utf-8") as fh:
+        for key in keys:
+            fh.write(key + "\n")
+        fh.flush()
+
+
+def _concat_shards(run_dir: Path) -> Path:
+    shard_dir = run_dir / "shards"
+    parts = sorted(shard_dir.glob("*.parquet")) if shard_dir.is_dir() else []
+    out = run_dir / "site_embeddings.parquet"
+    tables: list[pl.DataFrame] = []
+    if out.exists():
+        tables.append(pl.read_parquet(out))
+    tables.extend(pl.read_parquet(path) for path in parts)
+    if not tables:
+        raise RuntimeError(f"No embedding shards under {shard_dir}")
+    table = pl.concat(tables, how="diagonal")
+    if "site_key" in table.columns:
+        table = table.unique(subset=["site_key"], keep="last")
+    table.write_parquet(out)
+    return out
+
+
 def generate_embeddings(
     model: str,
     images_root: Path,
@@ -390,13 +405,23 @@ def generate_embeddings(
     crop_margin: int = 16,
     crop_size: int | None = None,
     subset: str | None = None,
+    site_set: str = "all",
     max_wells: int | None = None,
+    sources: Iterable[str] | None = None,
+    plates: Iterable[str] | None = None,
+    batches: Iterable[str] | None = None,
+    pool: str = "crop",
+    run_dir: Path | None = None,
     mask_codec: str = DEFAULT_MASK_CODEC,
     dry_run: bool = False,
     preview_n: int = 32,
 ) -> Path:
     if crop not in CROP_MODES:
         raise ValueError(f"crop must be one of {CROP_MODES}, got {crop!r}")
+    if crop in CELL_CROPS:
+        site_set = "jump_lite"
+    if pool not in POOL_MODES:
+        raise ValueError(f"pool must be one of {POOL_MODES}, got {pool!r}")
     card = resolve_model(model, models_cfg)
     card["crop"] = crop
     card["mask_object"] = mask_object
@@ -404,35 +429,47 @@ def generate_embeddings(
     card["mask_codec"] = mask_codec
     card["crop_size"] = resolve_crop_size({**card, "crop_size": crop_size})
     images_root = Path(images_root)
-    run_dir = _run_dir(output_dir, card, codec, crop, mask_object)
-    run_dir.mkdir(parents=True, exist_ok=True)
+    dest = (
+        Path(run_dir)
+        if run_dir is not None
+        else _run_dir(output_dir, card, codec, crop, mask_object)
+    )
+    dest.mkdir(parents=True, exist_ok=True)
 
     mode = "dry-run preview" if dry_run else "embed"
     _status(
         f"{mode}: model={card['name']} crop={crop} crop_size={card['crop_size']} "
-        f"tile_size={card['tile_size']} object={mask_object} images={images_root}"
+        f"tile_size={card['tile_size']} object={mask_object} sites={site_set} "
+        f"subset={subset} pool={pool} images={images_root}"
     )
     site_iter = iter_embed_sites(
         images_root,
         crop,
         site_keys=site_keys,
         subset=subset,
+        site_set=site_set,
         max_wells=max_wells,
+        sources=sources,
+        plates=plates,
+        batches=batches,
     )
     if dry_run:
-        return preview_crops(card, images_root, site_iter, run_dir / "preview", preview_n=preview_n)
+        return preview_crops(card, images_root, site_iter, dest / "preview", preview_n=preview_n)
 
     keys = list(site_iter)
     if not keys:
         raise FileNotFoundError(f"No sites found under {images_root}")
+    completed = _completed_site_keys(dest)
+    pending = [key for key in keys if key not in completed]
+    _status(f"{len(keys)} candidate sites, {len(completed)} already done, {len(pending)} remaining")
 
-    if crop in CELL_CROPS:
+    if crop in CELL_CROPS and pending:
         jobs = int(card.get("runtime", {}).get("num_workers") or 16)
         _status(
-            f"Caching {len(keys)} {mask_object} masks ({mask_codec}) before embed (jobs={jobs})"
+            f"Caching {len(pending)} {mask_object} masks ({mask_codec}) before embed (jobs={jobs})"
         )
         cached = cache_masks(
-            keys,
+            pending,
             object_type=mask_object,
             codec=mask_codec,
             jobs=jobs,
@@ -442,39 +479,73 @@ def generate_embeddings(
             f"{cached['missing']} missing"
         )
 
-    _status(f"Building backend for {card['name']} ({len(keys)} sites)")
-    backend = build_backend(card)
-    device = getattr(backend, "device", None)
-    if device is not None:
-        _status(f"backend device={device}")
-    frames = []
+    backend = None
     n_skipped_no_mask = 0
     n_skipped_edge = 0
-    n_sites_embedded = 0
-    for key in tqdm(keys, desc=f"embed:{card['name']}:{crop}"):
+    n_sites_embedded = len(completed)
+    n_crops_total = 0
+    coverage: dict[str, float | int] | None = None
+    embedding_dim: int | None = None
+    shard_dir = dest / "shards"
+    completed_path = dest / "completed_sites.txt"
+    existing_shards = sorted(shard_dir.glob("*.parquet")) if shard_dir.is_dir() else []
+    shard_index = len(existing_shards)
+    frames: list[pl.DataFrame] = []
+    flushed_keys: list[str] = []
+
+    if pending:
+        _status(f"Building backend for {card['name']} ({len(pending)} sites to embed)")
+        backend = build_backend(card)
+        device = getattr(backend, "device", None)
+        if device is not None:
+            _status(f"backend device={device}")
+        embedding_dim = getattr(backend, "embedding_dim", None)
+
+    fmt = card.get("aggregation", {}).get("output_format", "wide")
+    for key in tqdm(pending, desc=f"embed:{card['name']}:{crop}"):
         image = load_site_images(images_root, key)
+        if coverage is None and crop == "grid":
+            coverage = grid_coverage(
+                int(image.shape[1]), int(image.shape[2]), int(card["crop_size"])
+            )
         feats, extra, stats = embed_site(image, card, backend, site_key=key)
         n_skipped_no_mask += stats["n_skipped_no_mask"]
         n_skipped_edge += stats["n_skipped_edge"]
         if feats.shape[0] == 0:
             continue
+        n_crops_total += int(feats.shape[0])
+        if embedding_dim is None:
+            embedding_dim = int(feats.shape[1])
+        if pool == "site":
+            feats, extra = _pool_site_features(feats, extra)
         n_sites_embedded += 1
-        fmt = card.get("aggregation", {}).get("output_format", "wide")
         if fmt == "jump_lite_long":
             frames.append(_long_rows(key, feats, extra, card["name"]))
         else:
             frames.append(_wide_rows(key, feats, extra))
+        flushed_keys.append(key)
+        if len(frames) >= _SHARD_FLUSH:
+            _flush_shard(frames, shard_dir, shard_index, completed_path, flushed_keys)
+            shard_index += 1
+            frames = []
+            flushed_keys = []
 
-    if not frames:
+    if frames:
+        _flush_shard(frames, shard_dir, shard_index, completed_path, flushed_keys)
+
+    if n_sites_embedded == 0:
         raise RuntimeError(
             f"No embeddings produced ({crop}, {len(keys)} candidate sites, "
             f"{n_skipped_no_mask} missing masks)"
         )
-    table = pl.concat(frames, how="diagonal")
-    out = run_dir / "site_embeddings.parquet"
-    table.write_parquet(out)
+    out = _concat_shards(dest)
+    mean_crops = (n_crops_total / max(len(pending), 1)) if pending else None
+    if mean_crops is None and pool == "site" and out.exists():
+        table = pl.scan_parquet(out)
+        if "n_crops" in table.collect_schema():
+            mean_crops = float(table.select(pl.col("n_crops").mean()).collect().item() or 0)
     write_json(
-        run_dir / "provenance.json",
+        dest / "provenance.json",
         {
             "created_at": now_iso(),
             "model": card["name"],
@@ -489,13 +560,26 @@ def generate_embeddings(
             "architecture": card.get("architecture"),
             "pretrained": card.get("pretrained"),
             "device": str(
-                getattr(backend, "device", None) or card.get("runtime", {}).get("device")
+                getattr(backend, "device", None)
+                if backend is not None
+                else card.get("runtime", {}).get("device")
             ),
             "crop": crop,
             "crop_margin": int(crop_margin) if crop == "cell_bbox" else None,
             "mask_object": mask_object if crop in CELL_CROPS else None,
             "mask_codec": mask_codec if crop in CELL_CROPS else None,
-            "subset": (subset or "crispr") if crop in CELL_CROPS else None,
+            "subset": subset if subset is not None else ("crispr" if crop in CELL_CROPS else None),
+            "site_set": "jump_lite" if crop in CELL_CROPS else site_set,
+            "batches": list(batches) if batches else None,
+            "pool": pool,
+            "embedding_dim": embedding_dim,
+            "n_tiles_mean": mean_crops if crop == "grid" else None,
+            "n_cells_mean": mean_crops if crop in CELL_CROPS else None,
+            "fov_frac": None if coverage is None else coverage.get("fov_frac"),
+            "n_tiles_y": None if coverage is None else coverage.get("n_tiles_y"),
+            "n_tiles_x": None if coverage is None else coverage.get("n_tiles_x"),
+            "image_height": None if coverage is None else coverage.get("image_height"),
+            "image_width": None if coverage is None else coverage.get("image_width"),
             "n_sites": len(keys),
             "n_sites_embedded": n_sites_embedded,
             "n_sites_skipped_no_mask": n_skipped_no_mask,

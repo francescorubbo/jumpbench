@@ -9,6 +9,14 @@ import yaml
 from jumpbench.paths import repo_root, resolve
 
 ZARR_CHANNELS = ("AGP", "DNA", "ER", "Mito", "RNA")
+CHANNEL_RECIPE_KEYS = (
+    "jump_lite_as_run",
+    "paper_table_s3",
+    "five_stain",
+    "dinov2_as_run",
+    "table_s3_dinov2",
+    "subcell_as_run",
+)
 
 
 def load_yaml(path: str | Path) -> dict[str, Any]:
@@ -57,10 +65,11 @@ def resolve_model(name: str, models_cfg: dict[str, Any] | None = None) -> dict[s
         raise KeyError(f"Unknown model {name!r}. Known: {known}")
     card = deepcopy(models_cfg["models"][name])
     recipe = models_cfg.get("channel_recipe", "jump_lite_as_run")
-    recipe_block = card.pop(recipe, None) or card.pop("jump_lite_as_run", {}) or {}
-    # Drop the unused recipe so callers don't mix them.
-    card.pop("paper_table_s3", None)
-    card.pop("jump_lite_as_run", None)
+    recipe_block = card.pop(recipe, None)
+    if not recipe_block:
+        recipe_block = card.pop("jump_lite_as_run", None) or card.pop("five_stain", None) or {}
+    for key in CHANNEL_RECIPE_KEYS:
+        card.pop(key, None)
     card["name"] = name
     card["channel_recipe"] = recipe
     card["channels"] = list(recipe_block.get("channels", card.get("channels", [])))

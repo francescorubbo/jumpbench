@@ -117,13 +117,21 @@ models:
 
   timm:
     family: timm
-    architecture: resnet50   # any timm id; override with --set
+    architecture: tf_efficientnet_b0   # any timm id; override with --set
     pretrained: true
     bag_of_channels: true
     preprocess_scope: tile   # min-max on each crop, not the FOV
     tile_size: 224           # default crop window; conv will not resize
     jump_lite_as_run:
       channels: [AGP, DNA, ER, Mito, RNA]
+    five_stain:
+      channels: [AGP, DNA, ER, Mito, RNA]
+    dinov2_as_run:
+      channels: [AGP, DNA, ER]
+    table_s3_dinov2:
+      channels: [DNA, AGP, Mito]
+    subcell_as_run:
+      channels: [AGP, DNA, ER, Mito]
     paper_table_s3:
       channels: [DNA, AGP, Mito, RNA, ER]
     preprocess:
@@ -131,8 +139,9 @@ models:
     notes: >
       Bag-of-channels via timm. Each stain is repeated to RGB and forwarded
       separately, then concatenated. Conv backbones keep native crop size;
-      ViTs resize to the model input. Swap architecture with
-      --set models.timm.architecture=vit_small_patch14_dinov2.lvd142m.
+      ViTs resize to the model input. Default architecture is EfficientNet-B0.
+      H12 conv champion is tf_efficientnetv2_xl.in21k vs
+      vit_small_patch14_dinov2.lvd142m.
 
   cell_count:
     family: cell_count
