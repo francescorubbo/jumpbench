@@ -16,7 +16,7 @@ from jumpbench.data.masks import DEFAULT_MASK_CODEC, load_mask, mask_sites
 from jumpbench.data.metadata import parse_site_key, well_id_from_site_key
 from jumpbench.embed.backends import build_backend
 from jumpbench.embed.crops import crop_cells_bbox, crop_cells_fixed, resize_tiles
-from jumpbench.embed.preprocess import apply_preprocess
+from jumpbench.embed.preprocess import apply_preprocess, apply_preprocess_tiles
 from jumpbench.embed.preview import montage_rgb, write_png
 from jumpbench.embed.tiling import crop_tiles, reorder_channels, select_channels
 from jumpbench.provenance import now_iso, write_json
@@ -38,11 +38,16 @@ def resolve_crop_size(card: dict[str, Any]) -> int:
     return size
 
 
-def _embed_tiles(backend, tiles: np.ndarray, tile_size: int) -> np.ndarray:
+def _embed_tiles(backend, tiles: np.ndarray, card: dict[str, Any]) -> np.ndarray:
     if tiles.shape[0] == 0:
         dim = getattr(backend, "embedding_dim", None) or 0
         return np.zeros((0, int(dim)), dtype=np.float32)
-    return backend.embed_tiles(resize_tiles(tiles, tile_size))
+    if str(card.get("preprocess_scope", "site")) == "tile":
+        tiles = apply_preprocess_tiles(tiles, card.get("preprocess"))
+    target = getattr(backend, "resize_to", int(card["tile_size"]))
+    if target is not None:
+        tiles = resize_tiles(tiles, int(target))
+    return backend.embed_tiles(tiles)
 
 
 def _prepare_image(image: np.ndarray, card: dict[str, Any]) -> tuple[np.ndarray, list[str]]:
@@ -54,7 +59,9 @@ def _prepare_image(image: np.ndarray, card: dict[str, Any]) -> tuple[np.ndarray,
     if order:
         selected = reorder_channels(selected, names, order)
         names = list(order)
-    return apply_preprocess(selected, card.get("preprocess")), names
+    if str(card.get("preprocess_scope", "site")) != "tile":
+        selected = apply_preprocess(selected, card.get("preprocess"))
+    return selected, names
 
 
 def crop_site(
@@ -127,7 +134,7 @@ def embed_site(
     centroids. ``mask`` injects labels for tests; otherwise cell modes fetch from S3.
     """
     tiles, meta, stats = crop_site(image, card, site_key=site_key, mask=mask)
-    feats = _embed_tiles(backend, tiles, int(card["tile_size"]))
+    feats = _embed_tiles(backend, tiles, card)
     return feats, meta, stats
 
 
@@ -458,6 +465,7 @@ def generate_embeddings(
             "crop_size": card["crop_size"],
             "tile_size": card["tile_size"],
             "preprocess": card["preprocess"],
+            "preprocess_scope": card.get("preprocess_scope", "site"),
             "checkpoint": card.get("checkpoint"),
             "architecture": card.get("architecture"),
             "pretrained": card.get("pretrained"),

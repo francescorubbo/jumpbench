@@ -67,6 +67,10 @@ def resolve_model(name: str, models_cfg: dict[str, Any] | None = None) -> dict[s
     if "model_channel_order" in recipe_block:
         card["model_channel_order"] = list(recipe_block["model_channel_order"])
     card["preprocess"] = list(card.get("preprocess") or [])
+    scope = str(card.get("preprocess_scope") or "site")
+    if scope not in ("site", "tile"):
+        raise ValueError(f"preprocess_scope must be 'site' or 'tile', got {scope!r}")
+    card["preprocess_scope"] = scope
     card["tile_size"] = int(
         card.get("tile_size") or models_cfg.get("runtime", {}).get("tile_size") or 224
     )

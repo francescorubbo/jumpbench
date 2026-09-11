@@ -174,12 +174,70 @@ class SubCellBackend(EmbeddingBackend):
         return np.asarray(self.inner.embed(tiles), dtype=np.float32)
 
 
+def _timm_model_cfg(model) -> dict[str, Any]:
+    cfg = getattr(model, "pretrained_cfg", None) or getattr(model, "default_cfg", None) or {}
+    return dict(cfg)
+
+
+class TimmBackend(EmbeddingBackend):
+    """Bag-of-channels via timm: each stain is repeated to RGB, forwarded, concatenated."""
+
+    def __init__(self, card: dict[str, Any]):
+        super().__init__(card)
+        import timm
+
+        device = _torch_device(card.get("runtime", {}).get("device", "auto"))
+        self.device = device
+        arch = card.get("architecture", "resnet50")
+        pretrained = bool(card.get("pretrained", True))
+        probe = timm.create_model(arch, pretrained=False, num_classes=0)
+        cfg = _timm_model_cfg(probe)
+        del probe
+        create_kw: dict[str, Any] = {"pretrained": pretrained, "num_classes": 0}
+        if bool(cfg.get("fixed_input_size")):
+            input_size = cfg.get("input_size") or (3, 224, 224)
+            default_size = int(input_size[-1])
+            size = int(card.get("tile_size") or default_size)
+            if size != default_size:
+                create_kw["img_size"] = size
+            self.resize_to: int | None = size
+        else:
+            self.resize_to = None
+        self.model = timm.create_model(arch, **create_kw)
+        self.model.eval().to(device)
+        self.batch_size = int(card.get("runtime", {}).get("batch_size", 16))
+        n_channels = len(card.get("channels") or [])
+        num_features = getattr(self.model, "num_features")
+        if not isinstance(num_features, int):
+            raise TypeError(f"timm model {arch!r} num_features is {type(num_features)}")
+        self.embedding_dim = n_channels * num_features
+
+    def embed_tiles(self, tiles: np.ndarray) -> np.ndarray:
+        import torch
+
+        x = torch.from_numpy(tiles.astype(np.float32, copy=False))
+        channel_feats = []
+        n_channels = x.shape[1]
+        with torch.inference_mode():
+            for c in range(n_channels):
+                outs = []
+                for start in range(0, len(x), self.batch_size):
+                    ch = x[start : start + self.batch_size, c : c + 1].repeat(1, 3, 1, 1)
+                    feats = self.model(ch.to(self.device))
+                    if isinstance(feats, dict):
+                        feats = feats.get("x_norm_clstoken", next(iter(feats.values())))
+                    outs.append(feats.detach().cpu().numpy())
+                channel_feats.append(np.concatenate(outs, axis=0))
+        return np.concatenate(channel_feats, axis=1)
+
+
 BACKENDS = {
     "dummy": DummyBackend,
     "dinov2": DinoV2Backend,
     "morphem": MorphEmBackend,
     "openphenom": OpenPhenomBackend,
     "subcell": SubCellBackend,
+    "timm": TimmBackend,
 }
 
 

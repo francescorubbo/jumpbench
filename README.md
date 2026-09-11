@@ -52,7 +52,8 @@ Every embedding run writes `provenance.json` next to the parquet:
 
 - checkpoint / architecture / `pretrained`
 - channel recipe (`jump_lite_as_run` vs `paper_table_s3`) and reorder
-- preprocess ops (clip percentiles, 8-bit, minmax, per-channel `standard`)
+- preprocess ops (clip percentiles, 8-bit, minmax, per-channel `standard`, percentile min-max)
+- `preprocess_scope` (`site` on the FOV vs `tile` per crop)
 - tile size, non-overlapping crop
 - batch size, device, seed
 - tile and site aggregation (`median` default, `mean` optional)
@@ -85,7 +86,7 @@ pip install -e ".[images,cellprofiler]"
 JUMP TIFFs streamed from S3 → JPEG XL on disk
         │
         ▼
-jumpbench embed --model {dinov2,morphem,openphenom,subcell,dummy}
+jumpbench embed --model {dinov2,morphem,openphenom,subcell,timm,dummy}
         │  per-site tiles, provenance.json
         ▼
 jumpbench aggregate --how median

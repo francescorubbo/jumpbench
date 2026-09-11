@@ -35,6 +35,17 @@ def standard(image: np.ndarray, eps: float = 1e-8) -> np.ndarray:
     return out
 
 
+def percentile_minmax(
+    image: np.ndarray, low: float = 1.0, high: float = 99.0, eps: float = 1e-8
+) -> np.ndarray:
+    """Map each channel from [low, high] percentiles to [0, 1]. Image is (C, H, W)."""
+    out = image.astype(np.float32, copy=True)
+    for c in range(out.shape[0]):
+        lo, hi = np.percentile(out[c], [low, high])
+        out[c] = np.clip((out[c] - lo) / (hi - lo + eps), 0.0, 1.0)
+    return out
+
+
 OPS = {
     "clip_percentile": clip_percentile,
     "rescale_minmax": rescale_minmax,
@@ -42,6 +53,7 @@ OPS = {
     "to_8bit": to_8bit,
     "8bit": to_8bit,
     "standard": standard,
+    "percentile_minmax": percentile_minmax,
 }
 
 
@@ -54,3 +66,12 @@ def apply_preprocess(image: np.ndarray, steps: list[dict] | None) -> np.ndarray:
         kwargs = {k: v for k, v in step.items() if k != "op"}
         out = OPS[op](out, **kwargs)
     return out
+
+
+def apply_preprocess_tiles(tiles: np.ndarray, steps: list[dict] | None) -> np.ndarray:
+    """Apply preprocess independently to each (C, H, W) crop in an (N, C, H, W) stack."""
+    if tiles.ndim != 4:
+        raise ValueError(f"Expected (N,C,H,W), got {tiles.shape}")
+    if tiles.shape[0] == 0 or not steps:
+        return tiles
+    return np.stack([apply_preprocess(tile, steps) for tile in tiles], axis=0)

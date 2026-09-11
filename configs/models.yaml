@@ -115,6 +115,25 @@ models:
       - {op: clip_percentile, low: 0.5, high: 99.5}
       - {op: rescale_minmax}
 
+  timm:
+    family: timm
+    architecture: resnet50   # any timm id; override with --set
+    pretrained: true
+    bag_of_channels: true
+    preprocess_scope: tile   # min-max on each crop, not the FOV
+    tile_size: 224           # default crop window; conv will not resize
+    jump_lite_as_run:
+      channels: [AGP, DNA, ER, Mito, RNA]
+    paper_table_s3:
+      channels: [DNA, AGP, Mito, RNA, ER]
+    preprocess:
+      - {op: percentile_minmax, low: 1, high: 99}
+    notes: >
+      Bag-of-channels via timm. Each stain is repeated to RGB and forwarded
+      separately, then concatenated. Conv backbones keep native crop size;
+      ViTs resize to the model input. Swap architecture with
+      --set models.timm.architecture=vit_small_patch14_dinov2.lvd142m.
+
   cell_count:
     family: cell_count
     notes: Two-feature baseline from object counts. Not an embedding model.
