@@ -122,12 +122,13 @@ def iter_embed_sites(
     sources: Iterable[str] | None = None,
     plates: Iterable[str] | None = None,
     batches: Iterable[str] | None = None,
+    require_local: bool = True,
 ) -> Iterator[str]:
     """Yield sites that should be embedded.
 
     Cell crops and ``site_set=jump_lite`` use frozen 4-site keys. Grid
     ``site_set=all`` uses local Orig FOVs, optionally restricted to CRISPR /
-    batch / plate.
+    batch / plate. ``require_local=False`` skips the on-disk probe (S3 embed).
     """
     images_root = Path(images_root)
     if site_set not in SITE_SETS:
@@ -140,6 +141,8 @@ def iter_embed_sites(
         if max_wells is None and not sources and not plates and not batches:
             yield from explicit_keys
             return
+    if not require_local and crop == "grid" and site_set == "all":
+        raise ValueError("S3 embed supports --sites jump_lite (and cell crops)")
 
     use_frozen = crop in CELL_CROPS or site_set == "jump_lite"
     if use_frozen:
@@ -154,6 +157,10 @@ def iter_embed_sites(
             site_keys=explicit_keys,
         )
         candidates = masked["Metadata_Site_Key"].to_list()
+        if not require_local:
+            _status(f"{len(candidates)} mask sites (S3; no local image probe)")
+            yield from candidates
+            return
         _status(f"{len(candidates)} mask sites; probing which have local images...")
         n_checked = 0
         n_hit = 0

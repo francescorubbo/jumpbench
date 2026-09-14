@@ -50,6 +50,8 @@ def test_embed_cli_campaign_flags():
     assert args.batch == ["20220914_Run1"]
     assert args.pool == "site"
     assert args.run_dir == Path("data/embeddings/timm/run1/b0")
+    s3 = parser.parse_args(["embed", "--model", "timm", "--image-source", "s3"])
+    assert s3.image_source == "s3"
     masks = parser.parse_args(["download-masks", "--batch", "20220914_Run1", "--subset", "crispr"])
     assert masks.batch == ["20220914_Run1"]
 

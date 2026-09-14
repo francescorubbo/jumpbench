@@ -12,10 +12,12 @@ from tqdm import tqdm
 
 from jumpbench.config import channel_indices, resolve_model
 from jumpbench.data.images import load_site_images
+from jumpbench.data.index import build_tiff_index
 from jumpbench.data.masks import DEFAULT_MASK_CODEC, cache_masks, load_mask
 from jumpbench.data.metadata import parse_site_key, well_id_from_site_key
 from jumpbench.embed.backends import build_backend
 from jumpbench.embed.crops import crop_cells_bbox, crop_cells_fixed, resize_tiles
+from jumpbench.embed.loader import IMAGE_SOURCES, iter_loaded_sites, site_load_fn
 from jumpbench.embed.preprocess import apply_preprocess, apply_preprocess_tiles
 from jumpbench.embed.preview import montage_rgb, write_png
 from jumpbench.embed.sites import CELL_CROPS, iter_embed_sites
@@ -203,6 +205,7 @@ def resolve_embed_sites(
     sources: Iterable[str] | None = None,
     plates: Iterable[str] | None = None,
     batches: Iterable[str] | None = None,
+    require_local: bool = True,
 ) -> list[str]:
     if crop in CELL_CROPS:
         site_set = "jump_lite"
@@ -217,6 +220,7 @@ def resolve_embed_sites(
             sources=sources,
             plates=plates,
             batches=batches,
+            require_local=require_local,
         )
     )
 
@@ -256,6 +260,7 @@ def preview_crops(
     *,
     preview_n: int = 32,
     mask: np.ndarray | None = None,
+    load_fn=None,
 ) -> Path:
     """Write a PNG montage and crop index without running an embedding backend."""
     if preview_n < 1:
@@ -269,6 +274,7 @@ def preview_crops(
     n_sites = 0
     n_tried = 0
     have = 0
+    load = load_fn or (lambda key: load_site_images(images_root, key))
     _status(f"Collecting {preview_n} preview crops ({card.get('crop', 'grid')}, no embeddings)")
     pbar = tqdm(
         total=preview_n,
@@ -282,7 +288,7 @@ def preview_crops(
         for key in keys:
             n_tried += 1
             _status(f"[{have}/{preview_n} crops] site {n_tried}: {key}  (load images)")
-            image = load_site_images(images_root, key)
+            image = load(key)
             _status(f"[{have}/{preview_n} crops] site {n_tried}: crop / mask")
             tiles, extra, stats = crop_site(image, card, site_key=key, mask=mask)
             n_skipped_no_mask += stats["n_skipped_no_mask"]
@@ -415,6 +421,9 @@ def generate_embeddings(
     mask_codec: str = DEFAULT_MASK_CODEC,
     dry_run: bool = False,
     preview_n: int = 32,
+    image_source: str = "local",
+    site_index: pl.DataFrame | None = None,
+    prefetch_jobs: int | None = None,
 ) -> Path:
     if crop not in CROP_MODES:
         raise ValueError(f"crop must be one of {CROP_MODES}, got {crop!r}")
@@ -422,6 +431,10 @@ def generate_embeddings(
         site_set = "jump_lite"
     if pool not in POOL_MODES:
         raise ValueError(f"pool must be one of {POOL_MODES}, got {pool!r}")
+    if image_source not in IMAGE_SOURCES:
+        raise ValueError(f"image_source must be one of {IMAGE_SOURCES}, got {image_source!r}")
+    if image_source == "s3":
+        codec = "raw"
     card = resolve_model(model, models_cfg)
     card["crop"] = crop
     card["mask_object"] = mask_object
@@ -440,39 +453,76 @@ def generate_embeddings(
     _status(
         f"{mode}: model={card['name']} crop={crop} crop_size={card['crop_size']} "
         f"tile_size={card['tile_size']} object={mask_object} sites={site_set} "
-        f"subset={subset} pool={pool} images={images_root}"
+        f"subset={subset} pool={pool} image_source={image_source} images={images_root}"
     )
-    site_iter = iter_embed_sites(
-        images_root,
-        crop,
-        site_keys=site_keys,
-        subset=subset,
-        site_set=site_set,
-        max_wells=max_wells,
-        sources=sources,
-        plates=plates,
-        batches=batches,
+    keys = list(
+        iter_embed_sites(
+            images_root,
+            crop,
+            site_keys=site_keys,
+            subset=subset,
+            site_set=site_set,
+            max_wells=max_wells,
+            sources=sources,
+            plates=plates,
+            batches=batches,
+            require_local=image_source == "local",
+        )
     )
-    if dry_run:
-        return preview_crops(card, images_root, site_iter, dest / "preview", preview_n=preview_n)
+    index = site_index
+    prefetch = 8 if image_source == "s3" else 1
+    if prefetch_jobs is not None:
+        prefetch = int(prefetch_jobs)
 
-    keys = list(site_iter)
+    def _ensure_index(for_keys: list[str]) -> pl.DataFrame | None:
+        if image_source != "s3":
+            return index
+        if index is not None:
+            return index
+        if not for_keys:
+            raise ValueError("S3 image_source requires a TIFF URI index")
+        _status(f"Resolving Orig TIFF URIs for {len(for_keys)} sites...")
+        return build_tiff_index(
+            site_set="jump_lite",
+            site_keys=for_keys,
+            show_progress=True,
+        )
+
+    if dry_run:
+        index = _ensure_index(keys)
+        return preview_crops(
+            card,
+            images_root,
+            keys,
+            dest / "preview",
+            preview_n=preview_n,
+            load_fn=site_load_fn(image_source, images_root, index, local_load=load_site_images),
+        )
+
     if not keys:
-        raise FileNotFoundError(f"No sites found under {images_root}")
+        raise FileNotFoundError(
+            f"No sites found under {images_root}"
+            if image_source == "local"
+            else "No sites selected for S3 embed"
+        )
     completed = _completed_site_keys(dest)
     pending = [key for key in keys if key not in completed]
     _status(f"{len(keys)} candidate sites, {len(completed)} already done, {len(pending)} remaining")
+    load_fn = site_load_fn("local", images_root, None, local_load=load_site_images)
+    if pending:
+        index = _ensure_index(pending)
+        load_fn = site_load_fn(image_source, images_root, index, local_load=load_site_images)
 
     if crop in CELL_CROPS and pending:
-        jobs = int(card.get("runtime", {}).get("num_workers") or 16)
+        mask_jobs = int(card.get("runtime", {}).get("num_workers") or 16)
         _status(
-            f"Caching {len(pending)} {mask_object} masks ({mask_codec}) before embed (jobs={jobs})"
+            f"Caching {len(pending)} {mask_object} masks ({mask_codec}) before embed (jobs={mask_jobs})"
         )
         cached = cache_masks(
             pending,
             object_type=mask_object,
             codec=mask_codec,
-            jobs=jobs,
+            jobs=mask_jobs,
         )
         _status(
             f"Mask cache: {cached['hit']} hit, {cached['fetched']} fetched, "
@@ -502,8 +552,8 @@ def generate_embeddings(
         embedding_dim = getattr(backend, "embedding_dim", None)
 
     fmt = card.get("aggregation", {}).get("output_format", "wide")
-    for key in tqdm(pending, desc=f"embed:{card['name']}:{crop}"):
-        image = load_site_images(images_root, key)
+    site_iter = iter_loaded_sites(pending, load_fn, prefetch=prefetch)
+    for key, image in tqdm(site_iter, total=len(pending), desc=f"embed:{card['name']}:{crop}"):
         if coverage is None and crop == "grid":
             coverage = grid_coverage(
                 int(image.shape[1]), int(image.shape[2]), int(card["crop_size"])
@@ -584,7 +634,11 @@ def generate_embeddings(
             "n_sites_embedded": n_sites_embedded,
             "n_sites_skipped_no_mask": n_skipped_no_mask,
             "n_objects_skipped_edge": n_skipped_edge,
-            "images_root": str(images_root),
+            "image_source": image_source,
+            "input_hw": int(card["crop_size"]),
+            "images_root": (
+                "s3://cellpainting-gallery" if image_source == "s3" else str(images_root)
+            ),
             "persist_codec": codec,
             "output": str(out),
             "comparison_note": card.get("notes"),

@@ -483,6 +483,8 @@ def download_tiffs(
     sources: list[str] | None = None,
     site_keys: list[str] | None = None,
     plates: list[str] | None = None,
+    batches: list[str] | None = None,
+    subset: str | None = None,
     jobs: int = 32,
     dry_run: bool = False,
     yes: bool = False,
@@ -507,6 +509,8 @@ def download_tiffs(
         sources=sources,
         site_keys=site_keys,
         plates=plates,
+        batches=batches,
+        subset=subset,
     )
     index_path = write_tiff_index(index, index_out)
     plan = plan_tiff_download(index, dest, index_path, jobs=jobs, codec=spec.name)
