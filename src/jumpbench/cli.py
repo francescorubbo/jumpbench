@@ -611,7 +611,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--prefetch-jobs",
         type=int,
         default=None,
-        help="Parallel site loaders (default 8 for --image-source s3, 1 for local).",
+        help="Parallel site loaders (default 16 for --image-source s3, 1 for local).",
     )
     e.add_argument(
         "--codec",

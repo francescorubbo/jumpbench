@@ -241,20 +241,22 @@ class TimmBackend(EmbeddingBackend):
         )
         if self.device.type == "cuda":
             gray = gray.pin_memory()
+        gray = gray.to(self.device, non_blocking=self.device.type == "cuda")
         outs = []
         with torch.inference_mode(), _inference_autocast(self.device):
             for start in range(0, gray.shape[0], self.batch_size):
                 sl = gray[start : start + self.batch_size]
-                sl = sl.to(self.device, non_blocking=self.device.type == "cuda")
-                rgb = sl.expand(-1, 3, -1, -1).contiguous()
+                rgb = sl.expand(-1, 3, -1, -1)
                 if self.channels_last:
                     rgb = rgb.contiguous(memory_format=torch.channels_last)
+                else:
+                    rgb = rgb.contiguous()
                 feats = self.model(rgb)
                 if isinstance(feats, dict):
                     feats = feats.get("x_norm_clstoken", next(iter(feats.values())))
-                outs.append(feats.float().cpu())
-        feat = torch.cat(outs, dim=0).reshape(n_tiles, n_channels, -1)
-        return feat.reshape(n_tiles, -1).numpy()
+                outs.append(feats)
+        feat = torch.cat(outs, dim=0).float().cpu()
+        return feat.reshape(n_tiles, n_channels, -1).reshape(n_tiles, -1).numpy()
 
 
 BACKENDS = {

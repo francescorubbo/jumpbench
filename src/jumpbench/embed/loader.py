@@ -39,8 +39,17 @@ def uri_map(index: pl.DataFrame) -> dict[str, dict[str, str]]:
 class S3TiffLoader:
     """GET Orig TIFFs from Cell Painting Gallery; never write them to disk."""
 
-    def __init__(self, index: pl.DataFrame):
+    def __init__(self, index: pl.DataFrame, channel_jobs: int = 5):
         self._keys = uri_map(index)
+        self._pool = ThreadPoolExecutor(
+            max_workers=max(1, int(channel_jobs)), thread_name_prefix="s3ch"
+        )
+
+    def close(self) -> None:
+        self._pool.shutdown(wait=False)
+
+    def _get_channel(self, s3_key: str) -> np.ndarray:
+        return decode_tiff_bytes(read_s3_bytes(GALLERY_BUCKET, s3_key))
 
     def load(
         self,
@@ -50,12 +59,16 @@ class S3TiffLoader:
         chmap = self._keys.get(site_key)
         if chmap is None:
             raise FileNotFoundError(f"No Orig TIFF URI for {site_key}")
-        arrays = []
+        keys: list[str] = []
         for channel in channels:
             key = chmap.get(channel)
             if not key:
                 raise FileNotFoundError(f"No Orig TIFF URI for {site_key} {channel}")
-            arrays.append(decode_tiff_bytes(read_s3_bytes(GALLERY_BUCKET, key)))
+            keys.append(key)
+        if len(keys) == 1:
+            arrays = [self._get_channel(keys[0])]
+        else:
+            arrays = list(self._pool.map(self._get_channel, keys))
         stacked = np.stack(arrays, axis=0)
         if stacked.dtype != np.uint16:
             stacked = stacked.astype(np.uint16, copy=False)
@@ -68,7 +81,7 @@ def site_load_fn(
     index: pl.DataFrame | None = None,
     *,
     local_load: Callable[[Path, str], np.ndarray] | None = None,
-) -> Callable[[str], np.ndarray]:
+) -> tuple[Callable[[str], np.ndarray], Callable[[], None]]:
     if image_source not in IMAGE_SOURCES:
         raise ValueError(f"image_source must be one of {IMAGE_SOURCES}, got {image_source!r}")
     if image_source == "local":
@@ -78,10 +91,11 @@ def site_load_fn(
         def _local(site_key: str) -> np.ndarray:
             return load_local(root, site_key)
 
-        return _local
+        return _local, lambda: None
     if index is None:
         raise ValueError("S3 image_source requires a TIFF URI index")
-    return S3TiffLoader(index).load
+    loader = S3TiffLoader(index)
+    return loader.load, loader.close
 
 
 def iter_loaded_sites(

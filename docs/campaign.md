@@ -101,8 +101,8 @@ jumpbench embed --model dummy --image-source s3 \
 
 ## Wave R — Raw champion, then MQ twin (H13)
 
-Run this **before** Waves 1–3. Later MQ OFAT is paused until the Raw vs MQ
-delta is scored. XL keeps native 96×96 (no upsample to 384).
+XL at 96 px is not the Wave 3 224 px memory case: use `runtime.batch_size=64`
+(raise to 128 if VRAM allows). `batch_size=4` is ~350 CUDA syncs per site.
 
 ```bash
 # Run1 champion (stream Orig TIFF)
@@ -111,7 +111,7 @@ jumpbench embed --model timm --image-source s3 \
   --crop cell_fixed --crop-size 96 --pool site \
   --run-dir data/embeddings/timm/run1/cell_fixed_jump_lite_96_efficientnetv2_xl_5ch_raw \
   --set models.timm.architecture=tf_efficientnetv2_xl.in21k \
-  --set runtime.batch_size=4
+  --set runtime.batch_size=64
 
 jumpbench aggregate \
   --input data/embeddings/timm/run1/cell_fixed_jump_lite_96_efficientnetv2_xl_5ch_raw/site_embeddings.parquet \
@@ -129,7 +129,7 @@ jumpbench embed --model timm --image-source local --images data/images \
   --crop cell_fixed --crop-size 96 --pool site \
   --run-dir data/embeddings/timm/run1/cell_fixed_jump_lite_96_efficientnetv2_xl_5ch_jpegxl_mq \
   --set models.timm.architecture=tf_efficientnetv2_xl.in21k \
-  --set runtime.batch_size=4
+  --set runtime.batch_size=64
 
 jumpbench aggregate \
   --input data/embeddings/timm/run1/cell_fixed_jump_lite_96_efficientnetv2_xl_5ch_jpegxl_mq/site_embeddings.parquet \
