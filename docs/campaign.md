@@ -5,12 +5,16 @@ Runbook for the CRISPR PA + timm experiments declared in
 
 Endpoint: **CRISPR phenotypic activity (mean NAP)** after `paper_dl_default`
 PCA/TVN, fit on the same CRISPR wells that were embedded. No PC, MOTIVE,
-11-task mean, MorphEM/DINOv2/SubCell re-embed, or Raw/HQ/MQ restudy.
+11-task mean, MorphEM/DINOv2/SubCell re-embed, or Table 1 Raw/HQ/MQ/D20
+restudy. Wave R is a **declared Raw-vs-MQ timm analogue** (H13), not that
+restudy.
 
-Images are already on disk (`data/images/`, JPEG XL MQ, all Orig FOVs). New
-embeddings write under `data/embeddings/timm/...` (gitignored). Results go in
-`data/results/campaign/` (also gitignored). Hypothesis **Status** / **Decision**
-in `docs/hypotheses.md` is the durable record.
+MQ images are already on disk (`data/images/`, JPEG XL MQ, all Orig FOVs).
+Raw Orig TIFFs are **streamed** at embed time (`--image-source s3`); do not
+write them next to `.jxl`. New embeddings write under
+`data/embeddings/timm/...` (gitignored). Results go in
+`data/results/campaign/` (also gitignored). Hypothesis **Status** /
+**Decision** in `docs/hypotheses.md` is the durable record.
 
 ## Declared baseline (B0)
 
@@ -36,16 +40,18 @@ Run directories must not collide. Always pass `--run-dir`.
 ```text
 data/embeddings/timm/run1/grid_jump_lite_224_efficientnet_b0_5ch/
 data/embeddings/timm/run1/grid_jump_lite_224_efficientnet_b0_dinov2_as_run/
-data/embeddings/timm/run1/cell_fixed_jump_lite_96_efficientnet_b0_5ch/
-data/embeddings/timm/run1/cell_fixed_jump_lite_128_efficientnet_b0_5ch/
+data/embeddings/timm/run1/cell_fixed_jump_lite_96_efficientnetv2_xl_5ch_raw/
+data/embeddings/timm/run1/cell_fixed_jump_lite_96_efficientnetv2_xl_5ch_jpegxl_mq/
 data/embeddings/timm/crispr/grid_jump_lite_224_efficientnet_b0_5ch/
 ```
 
 ## Wave 0 — Tooling (done in this repo)
 
 `jumpbench embed` now honors `--subset`, `--sites {all,jump_lite}`, `--batch`,
-`--source`, `--plate`, `--pool {crop,site}`, and `--run-dir`. Site shards resume
-after a crash (`shards/` + `completed_sites.txt`). Cell crops remain 4-site only.
+`--source`, `--plate`, `--pool {crop,site}`, `--run-dir`, `--image-source
+{local,s3}`, and `--prefetch-jobs`. `--image-source s3` streams Orig TIFFs
+and does not probe local `.jxl`. Site shards resume after a crash (`shards/`
++ `completed_sites.txt`). Cell crops remain 4-site only.
 
 Named timm recipes: `five_stain`, `dinov2_as_run`, `table_s3_dinov2`,
 `subcell_as_run` (plus the existing `jump_lite_as_run` / `paper_table_s3`).
@@ -83,7 +89,74 @@ jumpbench download-masks --subset crispr --batch 20220914_Run1 --jobs 16
 
 One-plate PA is not a campaign score. It only checks the pipeline.
 
+S3 cell-crop smoke (dummy, one well, Orig TIFF stream; do not persist TIFFs):
+
+```bash
+jumpbench embed --model dummy --image-source s3 \
+  --subset crispr --sites jump_lite --batch 20220914_Run1 \
+  --plate CP-CC9-R1-01 --max-wells 1 \
+  --crop cell_fixed --crop-size 96 --pool site \
+  --run-dir data/embeddings/dummy/smoke_s3_cell96_raw
+```
+
+## Wave R — Raw champion, then MQ twin (H13)
+
+Run this **before** Waves 1–3. Later MQ OFAT is paused until the Raw vs MQ
+delta is scored. XL keeps native 96×96 (no upsample to 384).
+
+```bash
+# Run1 champion (stream Orig TIFF)
+jumpbench embed --model timm --image-source s3 \
+  --subset crispr --sites jump_lite --batch 20220914_Run1 \
+  --crop cell_fixed --crop-size 96 --pool site \
+  --run-dir data/embeddings/timm/run1/cell_fixed_jump_lite_96_efficientnetv2_xl_5ch_raw \
+  --set models.timm.architecture=tf_efficientnetv2_xl.in21k \
+  --set runtime.batch_size=4
+
+jumpbench aggregate \
+  --input data/embeddings/timm/run1/cell_fixed_jump_lite_96_efficientnetv2_xl_5ch_raw/site_embeddings.parquet \
+  --output data/profiles/timm_run1_xl_c96_raw.parquet
+jumpbench process --preset paper_dl_default \
+  --input data/profiles/timm_run1_xl_c96_raw.parquet \
+  --output data/processed/timm_run1_xl_c96_raw.parquet
+jumpbench evaluate --tasks pa --subset crispr \
+  --input data/processed/timm_run1_xl_c96_raw.parquet \
+  --output data/results/campaign/run1_xl_c96_raw.json
+
+# Run1 MQ twin (local JPEG XL already on disk)
+jumpbench embed --model timm --image-source local --images data/images \
+  --subset crispr --sites jump_lite --batch 20220914_Run1 \
+  --crop cell_fixed --crop-size 96 --pool site \
+  --run-dir data/embeddings/timm/run1/cell_fixed_jump_lite_96_efficientnetv2_xl_5ch_jpegxl_mq \
+  --set models.timm.architecture=tf_efficientnetv2_xl.in21k \
+  --set runtime.batch_size=4
+
+jumpbench aggregate \
+  --input data/embeddings/timm/run1/cell_fixed_jump_lite_96_efficientnetv2_xl_5ch_jpegxl_mq/site_embeddings.parquet \
+  --output data/profiles/timm_run1_xl_c96_mq.parquet
+jumpbench process --preset paper_dl_default \
+  --input data/profiles/timm_run1_xl_c96_mq.parquet \
+  --output data/processed/timm_run1_xl_c96_mq.parquet
+jumpbench evaluate --tasks pa --subset crispr \
+  --input data/processed/timm_run1_xl_c96_mq.parquet \
+  --output data/results/campaign/run1_xl_c96_mq.json
+```
+
+If \|ΔNAP\| (Raw vs MQ) ≥ 0.03, **stop MQ OFAT** and ablate on Raw/stream
+only. If not, later OFAT may stay on MQ. Full CRISPR (drop `--batch`) only
+if the Run1 champion is material vs B0-on-MQ or vs this MQ twin.
+
+Fallback if streaming is flaky **and** ≥0.5 TiB is free (separate root so
+`.jxl` cannot win):
+
+```bash
+jumpbench download-images --codec raw --dest data/images_raw \
+  --subset crispr --sites jump_lite --batch 20220914_Run1 --yes
+```
+
 ## Wave 1 — B0 on Run1
+
+Paused until Wave R (H13) is scored.
 
 ```bash
 jumpbench embed --model timm --images data/images \
@@ -207,8 +280,9 @@ Do not call a 4-site timm vs 6–9-site CP comparison `fair_all_sites`.
 
 ## Observational (no new pixels)
 
-H5, H7, H11, H13 stay **open** with Decision “not tested in this study.”
-Do not mark them `falsified`.
+H5, H7, H11 stay **open** with Decision “not tested in this study.”
+H13 is **partial** (Wave R analogue); still do not mark it `falsified` by
+omission, and do not expand it into HQ/D20.
 
 ## Closing a hypothesis
 

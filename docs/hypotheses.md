@@ -48,6 +48,8 @@ What this study *can* vary, all inside timm + CRISPR PA + PCA/TVN:
 - channel recipe (keep / drop stains) and bag-of-channels concat (timm’s
   native forward)
 - `models.timm.architecture` (conv vs DINOv2-class ViT; H12)
+- image source: streamed Orig TIFF (`--image-source s3`) vs local JPEG XL MQ
+  (H13 analogue; not a Table 1 Raw/HQ/MQ/D20 restudy)
 
 ## Summary
 
@@ -65,7 +67,7 @@ What this study *can* vary, all inside timm + CRISPR PA + PCA/TVN:
 | H10 | Bag-of-channels concat makes embedding dim incomparable | partial | open |
 | H11 | Cell Count^ inherits extra CP sites | observational | open |
 | H12 | DINOv2 is a weak natural-image baseline vs convnets (EfficientNet) | in-scope | open |
-| H13 | Compression-robustness headline inherits flawed embedding evaluation | observational | open |
+| H13 | Compression-robustness headline inherits flawed embedding evaluation | partial | open |
 | H14 | Default 224 px cell windows are not cell-scale | in-scope | open |
 
 ---
@@ -520,23 +522,30 @@ zarr codec variants are “compression study only” and not required for
 Figure 5-style runs (`README.md`). We will not re-embed MorphEM / DINOv2 /
 SubCell / OpenPhenom at Raw/HQ/MQ/D20.
 
-**Testability:** observational for Table 1. An optional analogue — timm
-CRISPR PA on a small Raw vs MQ subset, especially cell-crop EfficientNet
-vs grid ViT — is not in the current vary-list and is not promised (raw
-Orig TIFFs are tens of TB). Do not treat MQ-only timm scores as a
-compression restudy.
+**Testability:** partial analogue for Table 1. We will not re-embed MorphEM /
+DINOv2 / SubCell / OpenPhenom at Raw/HQ/MQ/D20. We will score one declared
+timm card on streamed Orig TIFF vs local JPEG XL MQ (Run1 CRISPR 4-site).
+Do not treat other MQ-only timm scores as a compression restudy until that
+pair is scored.
 
-**Planned test.** None — observational. If a declared Raw-vs-MQ timm subset
-is run later, record it here as a partial analogue, not a Table 1
-replication.
+**Planned test.** Champion card on Run1 4-site CRISPR, CRISPR PA after
+`paper_dl_default`: `--crop cell_fixed --crop-size 96`,
+`tf_efficientnetv2_xl.in21k`, five stains, `--pool site`. Raw arm:
+`--image-source s3` (Orig TIFF, never written). MQ twin: `--image-source local`
+on `data/images/`. Material if \|ΔNAP\| ≥ 0.03. If compression moves the
+score, pause MQ OFAT and ablate on Raw/stream only. Full CRISPR only after
+Run1. Not a Table 1 replication.
 
-**Falsifier.** Not reachable here. A later analogue would falsify the
-“insensitive readout” arm if cell-crop convnets show the same small MQ
-delta as grid ViTs.
+**Falsifier.** Reachable for the analogue: cell-crop EfficientNetV2-XL shows
+\|ΔNAP\| < 0.03 Raw vs MQ on Run1. Then compression is not first-order *for
+this card*, and later OFAT may stay on MQ. Paper Table 1 (four families,
+HQ/D20) stays unreplicated.
 
 **Status:** open
 
-**Decision:** 2026-09-11 — not tested in this study. No Raw/HQ/MQ/D20 re-benchmark. MQ-only timm scores are not a Table 1 analogue. Status stays `open` (observational; not falsified by omission).
+**Decision:** 2026-09-11 — Table 1 Raw/HQ/MQ/D20 re-benchmark not in this
+study. 2026-09-14 — declared Raw-vs-MQ timm analogue is in campaign Wave R
+(not yet scored). Status stays `open`.
 
 ---
 

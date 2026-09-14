@@ -21,6 +21,7 @@ from jumpbench.data.metadata import (
     cast_site_keys,
     filter_sites,
     filter_wells,
+    load_perturbations,
     load_sites,
     parse_site_key,
 )
@@ -228,6 +229,8 @@ def build_tiff_index(
     sources: list[str] | None = None,
     site_keys: list[str] | None = None,
     plates: list[str] | None = None,
+    batches: list[str] | None = None,
+    subset: str | None = None,
     cache_dir: Path | None = None,
     show_progress: bool = True,
 ) -> pl.DataFrame:
@@ -235,17 +238,27 @@ def build_tiff_index(
 
     ``site_set=all`` uses every FOV in JUMP load_data for those wells.
     ``site_set=jump_lite`` keeps the frozen v1.0 4-site sample.
+    ``subset=crispr`` keeps CRISPR treatments plus plate-matched negcons.
     """
     if site_set not in SITE_SETS:
         raise ValueError(f"site_set must be one of {SITE_SETS}, got {site_set!r}")
+    if subset not in {None, "all", "crispr"}:
+        raise ValueError(f"subset must be 'all' or 'crispr', got {subset!r}")
     cfg = load_data_config()
     if cache_dir is None:
         cache_dir = resolve(cfg["layout"].get("manifest", "data/manifest")) / "load_data"
 
+    well_frame = None
+    if subset == "crispr":
+        from jumpbench.profiles.cellprofiler import filter_crispr_wells
+
+        well_frame = filter_crispr_wells(load_perturbations())
     wells = filter_wells(
+        well_frame,
         max_wells=max_wells,
         sources=sources,
         plates=plates,
+        batches=batches,
         site_keys=site_keys if site_set == "all" else None,
     )
     frozen = pl.DataFrame()
@@ -257,7 +270,10 @@ def build_tiff_index(
             sources=sources,
             site_keys=site_keys,
             plates=plates,
+            batches=batches,
         )
+        if subset == "crispr" and frozen.height:
+            frozen = frozen.join(wells.select(JOIN_WELL).unique(), on=JOIN_WELL, how="inner")
         if frozen.height == 0:
             raise ValueError("No sites selected. Check --site / --source / --max-sites.")
     elif wells.height == 0:

@@ -63,7 +63,9 @@ def cmd_models(args: argparse.Namespace) -> int:
 
 def _site_filters(args: argparse.Namespace) -> dict:
     site_set = getattr(args, "sites", "all")
-    explicit_subset = bool(args.site or args.source or args.plate)
+    batches = getattr(args, "batch", None) or None
+    subset = getattr(args, "subset", None)
+    explicit_subset = bool(args.site or args.source or args.plate or batches or subset)
     full = getattr(args, "full_cohort", False) or getattr(args, "all", False)
     if full:
         max_sites = None
@@ -90,6 +92,8 @@ def _site_filters(args: argparse.Namespace) -> dict:
         "sources": args.source or None,
         "site_keys": args.site or None,
         "plates": getattr(args, "plate", None) or None,
+        "batches": list(batches) if batches else None,
+        "subset": subset,
     }
 
 
@@ -115,6 +119,13 @@ def cmd_index_images(args: argparse.Namespace) -> int:
 
 def cmd_download_images(args: argparse.Namespace) -> int:
     filters = _site_filters(args)
+    dest = Path(args.dest) if args.dest else default_images_root()
+    if args.codec == "raw" and dest.resolve() == default_images_root().resolve():
+        print(
+            "WARNING: --codec raw into data/images: embed prefers .jxl over .tif. "
+            "Use --dest data/images_raw (or --image-source s3 and do not persist TIFFs).",
+            file=sys.stderr,
+        )
     if filters["max_sites"] is None and filters["max_wells"] is None:
         if args.codec == "raw":
             print(
@@ -200,7 +211,8 @@ def cmd_embed(args: argparse.Namespace) -> int:
         site_set = "jump_lite"
     if args.dry_run:
         print(
-            f"Dry-run: {args.preview_n} {args.crop} crops from {args.images} (no embeddings)",
+            f"Dry-run: {args.preview_n} {args.crop} crops from "
+            f"{args.image_source}:{args.images} (no embeddings)",
             file=sys.stderr,
             flush=True,
         )
@@ -226,6 +238,8 @@ def cmd_embed(args: argparse.Namespace) -> int:
         run_dir=run_dir,
         dry_run=args.dry_run,
         preview_n=args.preview_n,
+        image_source=args.image_source,
+        prefetch_jobs=args.prefetch_jobs,
     )
     print(out)
     return 0
@@ -474,6 +488,12 @@ def build_parser() -> argparse.ArgumentParser:
             help="No well/site cap (full JUMP-lite well set; huge).",
         )
         parser.add_argument(
+            "--subset",
+            choices=("all", "crispr"),
+            default=None,
+            help="Restrict wells. crispr = treatments plus plate-matched negcons.",
+        )
+        parser.add_argument(
             "--site",
             action="append",
             default=[],
@@ -484,6 +504,12 @@ def build_parser() -> argparse.ArgumentParser:
             action="append",
             default=[],
             help="JUMP source, e.g. source_13 (repeatable)",
+        )
+        parser.add_argument(
+            "--batch",
+            action="append",
+            default=[],
+            help="Metadata_Batch (repeatable)",
         )
         parser.add_argument(
             "--plate",
@@ -574,6 +600,19 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--model", required=True)
     e.add_argument("--images", default=str(default_images_root()))
     e.add_argument("--output", default=str(resolve("data/embeddings")))
+    e.add_argument(
+        "--image-source",
+        choices=("local", "s3"),
+        default="local",
+        help="local = files under --images. s3 = stream Orig TIFFs from CPG (never write them). "
+        "S3 ignores local JPEG XL; persist_codec is raw.",
+    )
+    e.add_argument(
+        "--prefetch-jobs",
+        type=int,
+        default=None,
+        help="Parallel site loaders (default 8 for --image-source s3, 1 for local).",
+    )
     e.add_argument(
         "--codec",
         default=DEFAULT_CODEC,
