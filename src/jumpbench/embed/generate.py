@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import time
 import warnings
 from collections.abc import Iterable
 from pathlib import Path
@@ -470,7 +471,7 @@ def generate_embeddings(
         )
     )
     index = site_index
-    prefetch = 8 if image_source == "s3" else 1
+    prefetch = 16 if image_source == "s3" else 1
     if prefetch_jobs is not None:
         prefetch = int(prefetch_jobs)
 
@@ -490,14 +491,20 @@ def generate_embeddings(
 
     if dry_run:
         index = _ensure_index(keys)
-        return preview_crops(
-            card,
-            images_root,
-            keys,
-            dest / "preview",
-            preview_n=preview_n,
-            load_fn=site_load_fn(image_source, images_root, index, local_load=load_site_images),
+        load_fn, close_fn = site_load_fn(
+            image_source, images_root, index, local_load=load_site_images
         )
+        try:
+            return preview_crops(
+                card,
+                images_root,
+                keys,
+                dest / "preview",
+                preview_n=preview_n,
+                load_fn=load_fn,
+            )
+        finally:
+            close_fn()
 
     if not keys:
         raise FileNotFoundError(
@@ -508,10 +515,12 @@ def generate_embeddings(
     completed = _completed_site_keys(dest)
     pending = [key for key in keys if key not in completed]
     _status(f"{len(keys)} candidate sites, {len(completed)} already done, {len(pending)} remaining")
-    load_fn = site_load_fn("local", images_root, None, local_load=load_site_images)
+    load_fn, close_fn = site_load_fn("local", images_root, None, local_load=load_site_images)
     if pending:
         index = _ensure_index(pending)
-        load_fn = site_load_fn(image_source, images_root, index, local_load=load_site_images)
+        load_fn, close_fn = site_load_fn(
+            image_source, images_root, index, local_load=load_site_images
+        )
 
     if crop in CELL_CROPS and pending:
         mask_jobs = int(card.get("runtime", {}).get("num_workers") or 16)
@@ -548,37 +557,62 @@ def generate_embeddings(
         backend = build_backend(card)
         device = getattr(backend, "device", None)
         if device is not None:
-            _status(f"backend device={device}")
+            _status(
+                f"backend device={device} batch_size={getattr(backend, 'batch_size', None)} "
+                f"prefetch={prefetch}"
+            )
         embedding_dim = getattr(backend, "embedding_dim", None)
 
     fmt = card.get("aggregation", {}).get("output_format", "wide")
-    site_iter = iter_loaded_sites(pending, load_fn, prefetch=prefetch)
-    for key, image in tqdm(site_iter, total=len(pending), desc=f"embed:{card['name']}:{crop}"):
-        if coverage is None and crop == "grid":
-            coverage = grid_coverage(
-                int(image.shape[1]), int(image.shape[2]), int(card["crop_size"])
-            )
-        feats, extra, stats = embed_site(image, card, backend, site_key=key)
-        n_skipped_no_mask += stats["n_skipped_no_mask"]
-        n_skipped_edge += stats["n_skipped_edge"]
-        if feats.shape[0] == 0:
-            continue
-        n_crops_total += int(feats.shape[0])
-        if embedding_dim is None:
-            embedding_dim = int(feats.shape[1])
-        if pool == "site":
-            feats, extra = _pool_site_features(feats, extra)
-        n_sites_embedded += 1
-        if fmt == "jump_lite_long":
-            frames.append(_long_rows(key, feats, extra, card["name"]))
-        else:
-            frames.append(_wide_rows(key, feats, extra))
-        flushed_keys.append(key)
-        if len(frames) >= _SHARD_FLUSH:
-            _flush_shard(frames, shard_dir, shard_index, completed_path, flushed_keys)
-            shard_index += 1
-            frames = []
-            flushed_keys = []
+    n_timed = 0
+    sum_wait = 0.0
+    sum_embed = 0.0
+    t_next = time.perf_counter()
+    try:
+        site_iter = iter_loaded_sites(pending, load_fn, prefetch=prefetch)
+        for key, image in tqdm(site_iter, total=len(pending), desc=f"embed:{card['name']}:{crop}"):
+            wait_s = time.perf_counter() - t_next
+            if coverage is None and crop == "grid":
+                coverage = grid_coverage(
+                    int(image.shape[1]), int(image.shape[2]), int(card["crop_size"])
+                )
+            t_embed = time.perf_counter()
+            feats, extra, stats = embed_site(image, card, backend, site_key=key)
+            embed_s = time.perf_counter() - t_embed
+            n_timed += 1
+            sum_wait += wait_s
+            sum_embed += embed_s
+            if n_timed == 1 or n_timed % 32 == 0:
+                _status(
+                    f"timing n={n_timed} wait_image={wait_s * 1000:.0f}ms "
+                    f"embed={embed_s * 1000:.0f}ms "
+                    f"mean_wait={sum_wait / n_timed * 1000:.0f}ms "
+                    f"mean_embed={sum_embed / n_timed * 1000:.0f}ms"
+                )
+            n_skipped_no_mask += stats["n_skipped_no_mask"]
+            n_skipped_edge += stats["n_skipped_edge"]
+            if feats.shape[0] == 0:
+                t_next = time.perf_counter()
+                continue
+            n_crops_total += int(feats.shape[0])
+            if embedding_dim is None:
+                embedding_dim = int(feats.shape[1])
+            if pool == "site":
+                feats, extra = _pool_site_features(feats, extra)
+            n_sites_embedded += 1
+            if fmt == "jump_lite_long":
+                frames.append(_long_rows(key, feats, extra, card["name"]))
+            else:
+                frames.append(_wide_rows(key, feats, extra))
+            flushed_keys.append(key)
+            if len(frames) >= _SHARD_FLUSH:
+                _flush_shard(frames, shard_dir, shard_index, completed_path, flushed_keys)
+                shard_index += 1
+                frames = []
+                flushed_keys = []
+            t_next = time.perf_counter()
+    finally:
+        close_fn()
 
     if frames:
         _flush_shard(frames, shard_dir, shard_index, completed_path, flushed_keys)
