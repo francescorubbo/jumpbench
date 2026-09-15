@@ -176,13 +176,29 @@ def iter_loaded_sites(
     load_fn: Callable[[str], np.ndarray],
     *,
     prefetch: int = 1,
+    on_missing: Callable[[str], None] | None = None,
 ) -> Iterator[tuple[str, np.ndarray]]:
-    """Yield (site_key, image), overlapping loads when prefetch > 1."""
+    """Yield (site_key, image), overlapping loads when prefetch > 1.
+
+    When ``on_missing`` is set, ``FileNotFoundError`` from ``load_fn`` is
+    reported via that callback and the site is skipped (CPG MQ/TIFF holes).
+    """
     if prefetch < 1:
         raise ValueError(f"prefetch must be >= 1, got {prefetch}")
+
+    def _handle_missing(key: str, exc: FileNotFoundError) -> None:
+        if on_missing is None:
+            raise exc
+        on_missing(key)
+
     if prefetch == 1 or len(keys) <= 1:
         for key in keys:
-            yield key, load_fn(key)
+            try:
+                image = load_fn(key)
+            except FileNotFoundError as exc:
+                _handle_missing(key, exc)
+                continue
+            yield key, image
         return
     workers = min(prefetch, len(keys))
     with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -202,6 +218,11 @@ def iter_loaded_sites(
             finished, _pending = wait(inflight, return_when=FIRST_COMPLETED)
             for fut in finished:
                 key = inflight.pop(fut)
-                image = fut.result()
+                try:
+                    image = fut.result()
+                except FileNotFoundError as exc:
+                    _handle_missing(key, exc)
+                    _submit()
+                    continue
                 _submit()
                 yield key, image
