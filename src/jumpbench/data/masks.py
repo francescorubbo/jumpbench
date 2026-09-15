@@ -25,7 +25,6 @@ from jumpbench.data.metadata import (
 )
 from jumpbench.data.s3util import GALLERY_BUCKET, read_s3_bytes, write_bytes_atomic
 from jumpbench.paths import resolve
-from jumpbench.profiles.cellprofiler import filter_crispr_wells
 
 MASK_OBJECTS = ("cells", "nuclei")
 MASK_CODECS = ("jpegxl_lossy_mq", "zstd")
@@ -111,6 +110,8 @@ def mask_sites(
     site_keys: list[str] | None = None,
 ) -> pl.DataFrame:
     """Frozen JUMP-lite 4-site keys, optionally restricted to CRISPR wells."""
+    from jumpbench.profiles.cellprofiler import filter_crispr_wells
+
     sites = attach_site_keys(load_sites())
     if subset == "crispr":
         wells = filter_crispr_wells(load_perturbations())

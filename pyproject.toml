@@ -31,6 +31,8 @@ embed = [
     "transformers>=4.40",
     "timm>=1.0",
     "huggingface-hub>=0.23",
+    "zarr>=2.18",
+    "numcodecs>=0.13",
 ]
 cellprofiler = [
     "cp-measure @ git+https://github.com/afermg/cp_measure.git",

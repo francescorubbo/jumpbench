@@ -1,6 +1,6 @@
 # Original JUMP sources (public, anonymous S3). Default persist format is
-# JPEG XL MQ (paper distance=3.0). JUMP-lite zarrs are a compressed derivative
-# and are not required.
+# JPEG XL MQ (paper distance=3.0). JUMP-lite MQ zarr is streamed with
+# --image-source s3_mq (4-site only). Do not add HQ/D20.
 
 cellpainting_gallery:
   bucket: cellpainting-gallery
@@ -9,10 +9,10 @@ cellpainting_gallery:
   load_data_csv: cpg0016-jump/{source}/workspace/load_data_csv/{batch}/{plate}/load_data_with_illum.csv
   jump_lite_root: cpg0016-jump/source_all
   images:
-    zstd: images/2026_jump_lite_v1.0/images_compressed/zstd.zarr
-    hq: images/2026_jump_lite_v1.0/images_compressed/jpegxl_lossy_hq.zarr
-    mq: images/2026_jump_lite_v1.0/images_compressed/jpegxl_lossy_mq.zarr
-    d20: images/2026_jump_lite_v1.0/images_compressed/jpegxl_lossy_d20.zarr
+    zstd: images/jump_lite_v1.0/images_compressed/zstd.zarr
+    hq: images/jump_lite_v1.0/images_compressed/jpegxl_lossy_hq.zarr
+    mq: images/jump_lite_v1.0/images_compressed/jpegxl_lossy_mq.zarr
+    d20: images/jump_lite_v1.0/images_compressed/jpegxl_lossy_d20.zarr
   embeddings: workspace_dl/embeddings
   metadata: workspace/publication_data/2026_jump_lite/metadata/v1.0
   masks_cell: workspace/publication_data/2026_jump_lite/segmentation/2026_jump_lite_v1.0/cell_masks
@@ -26,6 +26,7 @@ channel_order: [AGP, DNA, ER, Mito, RNA]
 # jump_lite = frozen v1.0 4-site sample used for the paper's embeddings.
 site_set: all
 # Persist codec for download-images: jpegxl_mq | jpegxl_hq | jpeg | raw
+# JUMP-lite 4-site zarrs: images/jump_lite_v1.0/images_compressed/ (stream --image-source s3_mq).
 persist_codec: jpegxl_mq
 
 # Frozen cohort shipped in this repo (copied from JUMP_lite v1.0).

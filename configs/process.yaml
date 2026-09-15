@@ -8,6 +8,7 @@ presets:
     variance_freq_cut: 0.05
     variance_unique_cut: 0.01
     normalize: robustmad          # robustmad | standardize | none
+    normalize_stage: before_pca   # before_pca | after_pca
     fit_on_controls: true
     batch_col: Metadata_Plate
     control_col: Metadata_control_type
@@ -51,6 +52,22 @@ presets:
     fit_on_controls: false
     prune_correlated: false
     pca_components: null
+    tvn_efaar: false
+    inverse_normal_transform: false
+
+  # Diagnostic: PCA then per-plate z-score on negcons. Not a campaign endpoint.
+  simple_pca100:
+    drop_na_frac: 1.0
+    variance_freq_cut: 0.0
+    variance_unique_cut: 0.0
+    normalize: standardize
+    normalize_stage: after_pca
+    fit_on_controls: true
+    batch_col: Metadata_Plate
+    control_col: Metadata_control_type
+    control_key: negcon
+    prune_correlated: false
+    pca_components: 100
     tvn_efaar: false
     inverse_normal_transform: false
 

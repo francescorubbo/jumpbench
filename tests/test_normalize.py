@@ -144,6 +144,66 @@ def test_corrcoef_cpu_finite():
     assert np.allclose(np.diag(corr), 1.0, atol=1e-6)
 
 
+def _two_plate_table(rng, n_per=80, n_ctrl=20, n_feat=120):
+    n = n_per * 2
+    plates = ["P1"] * n_per + ["P2"] * n_per
+    wells = [f"W{i:03d}" for i in range(n_per)] * 2
+    is_ctrl = np.array(([True] * n_ctrl + [False] * (n_per - n_ctrl)) * 2)
+    feats = rng.normal(size=(n, n_feat))
+    feats[:n_per] += 10.0
+    feats[n_per:] -= 7.0
+    data: dict[str, object] = {
+        "Metadata_Source": ["test_source"] * n,
+        "Metadata_Batch": plates,
+        "Metadata_Plate": plates,
+        "Metadata_Well": wells,
+        "Metadata_control_type": ["negcon" if c else "trt" for c in is_ctrl],
+        "Metadata_negcon": is_ctrl.tolist(),
+    }
+    for i in range(n_feat):
+        data[f"feat_{i:04d}"] = feats[:, i]
+    return pl.DataFrame(data)
+
+
+def test_simple_pca100_zscores_negcons_per_plate_after_pca():
+    rng = np.random.default_rng(7)
+    df = _two_plate_table(rng, n_per=80, n_ctrl=20, n_feat=120)
+    out = process_profiles(df, preset="simple_pca100")
+    feat_cols = [c for c in out.columns if c.startswith("PC_")]
+    assert len(feat_cols) == 100
+    pcs = out.select(feat_cols).to_numpy()
+    assert np.isfinite(pcs).all()
+    plates = out["Metadata_Plate"].to_numpy()
+    controls = out["Metadata_negcon"].to_numpy().astype(bool)
+    for plate in ("P1", "P2"):
+        ref = pcs[controls & (plates == plate)]
+        assert ref.shape[0] == 20
+        assert np.allclose(ref.mean(axis=0), 0.0, atol=1e-6)
+        assert np.allclose(ref.std(axis=0), 1.0, atol=1e-6)
+
+
+def test_paper_dl_default_still_normalizes_before_pca():
+    rng = np.random.default_rng(8)
+    df = _two_plate_table(rng, n_per=40, n_ctrl=12, n_feat=16)
+    default = process_profiles(df, preset="paper_dl_default")
+    explicit = process_profiles(
+        df, preset="paper_dl_default", overrides=["normalize_stage=before_pca"]
+    )
+    feat_cols = [c for c in default.columns if c.startswith("PC_")]
+    assert feat_cols
+    np.testing.assert_allclose(
+        default.select(feat_cols).to_numpy(),
+        explicit.select(feat_cols).to_numpy(),
+    )
+
+
+def test_unknown_normalize_stage_rejected():
+    rng = np.random.default_rng(9)
+    df = _two_plate_table(rng, n_per=20, n_ctrl=8, n_feat=4)
+    with pytest.raises(ValueError, match="normalize_stage"):
+        process_profiles(df, preset="identity", overrides=["normalize_stage=during_pca"])
+
+
 def test_mps_corrcoef_and_pca_match_cpu_loosely():
     torch = pytest.importorskip("torch")
     if not (getattr(torch.backends, "mps", None) and torch.backends.mps.is_available()):

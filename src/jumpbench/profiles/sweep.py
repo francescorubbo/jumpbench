@@ -14,7 +14,7 @@ from typing import Any
 import polars as pl
 
 from jumpbench.config import load_process_config
-from jumpbench.eval.metrics import PAPER_PA_CRISPR, evaluate_path
+from jumpbench.eval.metrics import evaluate_path
 from jumpbench.paths import resolve
 from jumpbench.profiles.normalize import process_path
 
@@ -122,8 +122,6 @@ def load_result_jsons(results_dir: str | Path) -> list[dict[str, Any]]:
                 "path": str(path),
                 "mean_nap": pa.get("mean_nap"),
                 "n_perturbations": pa.get("n_perturbations"),
-                "paper_nap": pa.get("paper_nap", PAPER_PA_CRISPR),
-                "delta_vs_paper": pa.get("delta_vs_paper"),
                 "overrides": json.dumps(data.get("overrides") or {}, default=str),
             }
         )
@@ -140,8 +138,6 @@ def gather_results(results_dir: str | Path) -> pl.DataFrame:
                 "config_id": pl.Utf8,
                 "mean_nap": pl.Float64,
                 "n_perturbations": pl.Int64,
-                "paper_nap": pl.Float64,
-                "delta_vs_paper": pl.Float64,
                 "overrides": pl.Utf8,
                 "path": pl.Utf8,
             }
@@ -155,8 +151,6 @@ def gather_results(results_dir: str | Path) -> pl.DataFrame:
         "config_id",
         "mean_nap",
         "n_perturbations",
-        "paper_nap",
-        "delta_vs_paper",
         "overrides",
         "path",
     )
@@ -235,7 +229,6 @@ def run_shard(
     if subset == "crispr":
         eval_kwargs["subset"] = "crispr"
         eval_kwargs["group_col"] = None
-        eval_kwargs["paper_ref"] = "crispr"
         if tasks == "pa,pc":
             task_list = ("pa",)
     scored = evaluate_path(Path(processed), tasks=task_list, **eval_kwargs)

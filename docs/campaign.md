@@ -9,9 +9,11 @@ PCA/TVN, fit on the same CRISPR wells that were embedded. No PC, MOTIVE,
 restudy. Wave R is a **declared Raw-vs-MQ timm analogue** (H13), not that
 restudy.
 
-MQ images are already on disk (`data/images/`, JPEG XL MQ, all Orig FOVs).
-Raw Orig TIFFs are **streamed** at embed time (`--image-source s3`); do not
-write them next to `.jxl`. New embeddings write under
+MQ for 4-site arms is JUMP-lite `jpegxl_lossy_mq.zarr` streamed from CPG
+(`--image-source s3_mq`). Local `data/images/` JPEG XL remains for already
+downloaded all-FOV files; do not delete it. Raw Orig TIFFs are **streamed**
+at embed time (`--image-source s3`); do not write them next to `.jxl`. New
+embeddings write under
 `data/embeddings/timm/...` (gitignored). Results go in
 `data/results/campaign/` (also gitignored). Hypothesis **Status** /
 **Decision** in `docs/hypotheses.md` is the durable record.
@@ -49,9 +51,10 @@ data/embeddings/timm/crispr/grid_jump_lite_224_efficientnet_b0_5ch/
 
 `jumpbench embed` now honors `--subset`, `--sites {all,jump_lite}`, `--batch`,
 `--source`, `--plate`, `--pool {crop,site}`, `--run-dir`, `--image-source
-{local,s3}`, and `--prefetch-jobs`. `--image-source s3` streams Orig TIFFs
-and does not probe local `.jxl`. Site shards resume after a crash (`shards/`
-+ `completed_sites.txt`). Cell crops remain 4-site only.
+{local,s3,s3_mq}`, and `--prefetch-jobs`. `--image-source s3` streams Orig
+TIFFs and does not probe local `.jxl`. `--image-source s3_mq` streams
+JUMP-lite `jpegxl_lossy_mq.zarr` (4-site only). Site shards resume after a
+crash (`shards/` + `completed_sites.txt`). Cell crops remain 4-site only.
 
 Named timm recipes: `five_stain`, `dinov2_as_run`, `table_s3_dinov2`,
 `subcell_as_run` (plus the existing `jump_lite_as_run` / `paper_table_s3`).
@@ -97,6 +100,12 @@ jumpbench embed --model dummy --image-source s3 \
   --plate CP-CC9-R1-01 --max-wells 1 \
   --crop cell_fixed --crop-size 96 --pool site \
   --run-dir data/embeddings/dummy/smoke_s3_cell96_raw
+
+jumpbench embed --model dummy --image-source s3_mq \
+  --subset crispr --sites jump_lite --batch 20220914_Run1 \
+  --plate CP-CC9-R1-01 --max-wells 1 \
+  --crop cell_fixed --crop-size 96 --pool site \
+  --run-dir data/embeddings/dummy/smoke_s3_mq_cell96
 ```
 
 ## Wave R — Raw champion, then MQ twin (H13)
@@ -123,8 +132,8 @@ jumpbench evaluate --tasks pa --subset crispr \
   --input data/processed/timm_run1_xl_c96_raw.parquet \
   --output data/results/campaign/run1_xl_c96_raw.json
 
-# Run1 MQ twin (local JPEG XL already on disk)
-jumpbench embed --model timm --image-source local --images data/images \
+# Run1 MQ twin (stream JUMP-lite jpegxl_lossy_mq.zarr)
+jumpbench embed --model timm --image-source s3_mq \
   --subset crispr --sites jump_lite --batch 20220914_Run1 \
   --crop cell_fixed --crop-size 96 --pool site \
   --run-dir data/embeddings/timm/run1/cell_fixed_jump_lite_96_efficientnetv2_xl_5ch_jpegxl_mq \

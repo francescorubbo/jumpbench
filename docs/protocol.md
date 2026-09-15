@@ -9,9 +9,9 @@ protocol this repo actually runs.
 Frozen JUMP-lite v1.0: 163,776 wells, ≤4 sites/well, 655,101 sites, 6 JUMP
 sources. Manifests are in `metadata/jump_lite_v1_*.parquet`.
 
-## Images (original JUMP, not JUMP-lite zarr)
+## Images (original JUMP TIFFs, plus JUMP-lite MQ zarr for 4-site)
 
-Pixels are original JUMP TIFFs from Cell Painting Gallery
+Pixels for Raw / all-FOV work are original JUMP TIFFs from Cell Painting Gallery
 (`s3://cellpainting-gallery/cpg0016-jump/...`). URI discovery copies
 JUMP_lite `prep/build_jl_index.sql`:
 
@@ -21,14 +21,20 @@ JUMP_lite `prep/build_jl_index.sql`:
 3. Restrict to JUMP-lite **wells**. By default keep **every Orig FOV** on
    those wells (typically 6–9, the same support assembled CellProfiler used).
    `--sites jump_lite` instead inner-joins the frozen 4-site keys.
-4. **Stream** each Orig TIFF from S3 and persist JPEG XL (paper MQ,
-   `Jpegxl(lossless=False, distance=3.0)`) at
+4. **Stream** each Orig TIFF from S3 (`--image-source s3`) or persist JPEG XL
+   (Butteraugli distance 3.0) at
    `data/images/{source}/{batch}/{plate}/{well}/{site}__{channel}.jxl`.
+
+4-site MQ embeddings stream JUMP-lite `jpegxl_lossy_mq.zarr` from CPG
+(`--image-source s3_mq`): one uint16 `(C,H,W)` array per frozen site, Jpegxl
+distance 3.0. That store has no extra FOVs; `--sites all` is rejected. HQ/D20
+zarrs are not used.
 
 ```bash
 jumpbench download-images --max-wells 1          # all FOVs of 1 well (often 9)
 jumpbench download-images --sites jump_lite --max-wells 1   # paper's 4 sites
 jumpbench download-images --codec raw --max-wells 1         # uncompressed TIFFs
+jumpbench embed --model dummy --image-source s3_mq --sites jump_lite --max-wells 1
 ```
 
 The paper's embedding run used 4 sites; their CellProfiler numbers used 6–9.

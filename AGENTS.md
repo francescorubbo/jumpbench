@@ -5,6 +5,12 @@ after PCA/TVN. [JUMP_lite](https://github.com/afermg/JUMP_lite) remains the
 source of truth for *their* numbers. `jumpbench compare --mode paper_as_published`
 is tagged unfair on purpose.
 
+Ignore the paper CRISPR PA NAP **0.815**. It is JUMP_lite’s PA×PC-selected
+full-CRISPR config, not this study’s endpoint. We rank CRISPR-subset PA
+(mean NAP) against our own arms. Run1 is a smaller slice, so 0.815 is even
+less comparable. Do not write `paper_nap` / `delta_vs_paper` into result JSON
+or treat 0.815 as a target.
+
 ## Ranking fairness
 
 Living preregistration: [docs/hypotheses.md](docs/hypotheses.md).
@@ -29,9 +35,9 @@ Do not propose work that violates these:
    already on disk. Swapping `models.timm.architecture` (EfficientNet vs a
    DINOv2-class ViT) is in-scope for H12; that is not a re-run of paper
    DINOv2. H13 has a declared Raw-vs-MQ **timm analogue** (Wave R: cell-crop
-   EfficientNetV2-XL on streamed Orig TIFF vs local JPEG XL MQ). That is not
-   a Table 1 four-codec restudy; do not start HQ/D20 or re-embed paper DL
-   families.
+   EfficientNetV2-XL on streamed Orig TIFF vs streamed JUMP-lite
+   `jpegxl_lossy_mq.zarr`). That is not a Table 1 four-codec restudy; do not
+   start HQ/D20 or re-embed paper DL families.
 
 Campaign runbook: [docs/campaign.md](docs/campaign.md).
 
