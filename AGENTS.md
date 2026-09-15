@@ -5,6 +5,12 @@ after PCA/TVN. [JUMP_lite](https://github.com/afermg/JUMP_lite) remains the
 source of truth for *their* numbers. `jumpbench compare --mode paper_as_published`
 is tagged unfair on purpose.
 
+Ignore the paper CRISPR PA NAP **0.815**. It is JUMP_lite’s PA×PC-selected
+full-CRISPR config, not this study’s endpoint. We rank CRISPR-subset PA
+(mean NAP) against our own arms. Run1 is a smaller slice, so 0.815 is even
+less comparable. Do not write `paper_nap` / `delta_vs_paper` into result JSON
+or treat 0.815 as a target.
+
 ## Ranking fairness
 
 Living preregistration: [docs/hypotheses.md](docs/hypotheses.md).

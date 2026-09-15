@@ -4,10 +4,10 @@ import numpy as np
 import polars as pl
 import pytest
 
-from jumpbench.eval.metrics import PAPER_PA_CRISPR, evaluate_profiles
+from jumpbench.eval.metrics import evaluate_profiles
 
 
-def test_evaluate_crispr_paper_ref():
+def test_evaluate_pa_omits_paper_nap():
     rng = np.random.default_rng(0)
     compounds = ["g0"] * 4 + ["g1"] * 4 + ["g2"] * 4 + ["g3"] * 4 + ["DMSO"] * 8
     n = len(compounds)
@@ -20,10 +20,9 @@ def test_evaluate_crispr_paper_ref():
             "feat_0001": rng.normal(size=n),
         }
     )
-    out = evaluate_profiles(df, tasks=("pa",), group_col=None, paper_ref="crispr")
-    assert out["pa"]["paper_nap"] == PAPER_PA_CRISPR
-    assert "delta_vs_paper" in out["pa"]
-    assert out["pa"]["subset"] == "crispr"
+    out = evaluate_profiles(df, tasks=("pa",), group_col=None)
+    assert "paper_nap" not in out["pa"]
+    assert "delta_vs_paper" not in out["pa"]
     assert np.isfinite(out["pa"]["mean_nap"])
 
 
@@ -78,7 +77,7 @@ def test_evaluate_subset_crispr_drops_other_groups():
     assert mixed["pa"]["n_perturbations"] == 4
     assert crispr["pa"]["n_perturbations"] == 2
     assert crispr["pa"]["subset"] == "crispr"
-    assert crispr["pa"]["paper_nap"] == PAPER_PA_CRISPR
+    assert "paper_nap" not in crispr["pa"]
     assert np.isfinite(crispr["pa"]["mean_nap"])
 
 

@@ -157,6 +157,25 @@ def _apply_by_batch(
     return out
 
 
+NORMALIZE_STAGES = ("before_pca", "after_pca")
+
+
+def _apply_normalize(
+    X: np.ndarray,
+    batches: np.ndarray | None,
+    controls: np.ndarray,
+    fit_on_controls: bool,
+    transform,
+    epsilon: float,
+) -> np.ndarray:
+    if transform is None:
+        return X
+    if batches is not None:
+        return _apply_by_batch(X, batches, controls, fit_on_controls, transform, epsilon)
+    ref = X[controls] if fit_on_controls and controls.any() else X
+    return transform(X, ref, epsilon)
+
+
 def inverse_normal_transform(X: np.ndarray) -> np.ndarray:
     out = np.empty_like(X, dtype=np.float64)
     for i in range(X.shape[1]):
@@ -384,6 +403,9 @@ def process_profiles(
     method = cfg.get("normalize", "robustmad")
     fit_on_controls = bool(cfg.get("fit_on_controls", True))
     epsilon = float(cfg.get("robustmad_epsilon", 1e-18))
+    stage = str(cfg.get("normalize_stage") or "before_pca")
+    if stage not in NORMALIZE_STAGES:
+        raise ValueError(f"normalize_stage must be one of {NORMALIZE_STAGES}, got {stage!r}")
     if method == "robustmad":
         transform = robustmad
     elif method == "standardize":
@@ -392,12 +414,8 @@ def process_profiles(
         transform = None
     else:
         raise ValueError(method)
-    if transform is not None:
-        if batches is not None:
-            X = _apply_by_batch(X, batches, controls, fit_on_controls, transform, epsilon)
-        else:
-            ref = X[controls] if fit_on_controls and controls.any() else X
-            X = transform(X, ref, epsilon)
+    if stage == "before_pca":
+        X = _apply_normalize(X, batches, controls, fit_on_controls, transform, epsilon)
     outlier_cutoff = cfg.get("outlier_cutoff")
     if outlier_cutoff is not None:
         X, names = drop_outliers(X, names, float(outlier_cutoff))
@@ -418,6 +436,8 @@ def process_profiles(
         n_comp = min(int(n_comp), X.shape[0] - 1, X.shape[1])
         X = _pca_fit_transform(X, X, n_comp, device=device)
         names = [f"PC_{i + 1:03d}" for i in range(X.shape[1])]
+    if stage == "after_pca":
+        X = _apply_normalize(X, batches, controls, fit_on_controls, transform, epsilon)
     if cfg.get("tvn_efaar"):
         tvn_batch_col = cfg.get("tvn_batch_col") or batch_col
         if tvn_batch_col and tvn_batch_col in work.columns:

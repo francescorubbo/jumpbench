@@ -307,7 +307,12 @@ the paper lead.
 
 **Status:** open
 
-**Decision:**
+**Decision:** 2026-09-15 — DL processing moves timm CRISPR PA. Wave R XL
+cell-96 Raw, Run1, same site embeddings: `paper_dl_default` mean NAP 0.038
+(`data/results/campaign/run1_xl_c96_raw.json`) vs diagnostic `simple_pca100`
+(mean well-agg of site medians → PCA-100 → plate negcon z-score) mean NAP
+0.471 (`run1_xl_c96_raw_simple_pca100.json`). Not a campaign endpoint; H6
+stays `open` (no DL grid sweep, no CP-matched processing ablation).
 
 ---
 

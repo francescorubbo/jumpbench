@@ -22,7 +22,7 @@ from jumpbench.data.masks import (
 )
 from jumpbench.embed.generate import CROP_MODES, generate_embeddings
 from jumpbench.eval.compare import compare_runs
-from jumpbench.eval.metrics import PAPER_PA_CRISPR, evaluate_path
+from jumpbench.eval.metrics import evaluate_path
 from jumpbench.paths import repo_root, resolve
 from jumpbench.profiles.aggregate import aggregate_path
 from jumpbench.profiles.cellprofiler import align_paper_cellprofiler
@@ -269,19 +269,14 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
     if getattr(args, "subset", None) == "crispr":
         kwargs["subset"] = "crispr"
         kwargs["group_col"] = None
-        kwargs["paper_ref"] = "crispr"
         if args.tasks == "pa,pc":
             tasks = ("pa",)
     result = evaluate_path(Path(args.input), tasks=tasks, **kwargs)
     printable = {k: v for k, v in result.items() if not k.startswith("_")}
     print(json.dumps(printable, indent=2, default=str))
     pa = printable.get("pa") or {}
-    if pa.get("paper_nap") is not None:
-        print(
-            f"CRISPR PA NAP {pa['mean_nap']:.4f} vs paper {PAPER_PA_CRISPR:.3f} "
-            f"(delta {pa['delta_vs_paper']:+.4f})",
-            file=sys.stderr,
-        )
+    if pa.get("subset") == "crispr" and pa.get("mean_nap") is not None:
+        print(f"CRISPR PA NAP {pa['mean_nap']:.4f}", file=sys.stderr)
     if args.output:
         Path(args.output).write_text(json.dumps(printable, indent=2, default=str) + "\n")
     return 0
@@ -386,8 +381,7 @@ def cmd_sweep_gather(args: argparse.Namespace) -> int:
         mean_nap = float(winner["mean_nap"])
         print(
             f"winner {winner['config_id']} CRISPR PA NAP {mean_nap:.4f} "
-            f"vs paper {PAPER_PA_CRISPR:.3f} "
-            f"(delta {mean_nap - PAPER_PA_CRISPR:+.4f}; CRISPR-PA selection, not paper PA×PC)",
+            "(CRISPR-PA selection, not paper PA×PC)",
             file=sys.stderr,
         )
     print(out)
@@ -720,8 +714,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--subset",
         choices=("all", "crispr"),
         default="all",
-        help="crispr = keep CRISPR wells plus plate-matched negcons, then "
-        "score PA against the paper CRISPR NAP (0.815)",
+        help="crispr = keep CRISPR wells plus plate-matched negcons, then score PA",
     )
     ev.add_argument("--output")
     ev.set_defaults(func=cmd_evaluate)

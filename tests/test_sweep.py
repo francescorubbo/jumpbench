@@ -68,8 +68,6 @@ def test_gather_ranks_by_crispr_mean_nap(tmp_path: Path):
                     "pa": {
                         "mean_nap": nap,
                         "n_perturbations": 10,
-                        "paper_nap": 0.815,
-                        "delta_vs_paper": nap - 0.815,
                     },
                 }
             )

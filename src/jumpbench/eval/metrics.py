@@ -10,8 +10,6 @@ import polars as pl
 from jumpbench.profiles.cellprofiler import SUBSETS, filter_crispr_wells
 from jumpbench.profiles.normalize import feature_columns
 
-PAPER_PA_CRISPR = 0.815
-
 
 def _to_pandas(df: pl.DataFrame) -> pd.DataFrame:
     return df.to_pandas()
@@ -152,13 +150,11 @@ def evaluate_profiles(
     df: pl.DataFrame,
     tasks: tuple[str, ...] = ("pa", "pc"),
     subset: str | None = None,
-    paper_ref: str | None = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
     subset = subset or "all"
     if subset == "crispr":
         df = filter_crispr_wells(df)
-        paper_ref = paper_ref or "crispr"
     elif subset not in {None, "all"}:
         raise ValueError(f"Unknown subset {subset!r}. Known: {', '.join(SUBSETS)}")
     out: dict[str, Any] = {}
@@ -169,11 +165,8 @@ def evaluate_profiles(
         pa = phenotypic_activity(df, **pa_kwargs)
         out["pa"] = {k: v for k, v in pa.items() if k != "activity_map"}
         out["_pa_map"] = pa.get("activity_map")
-        if paper_ref in {"crispr", "crispr_pa"}:
-            mean_nap = float(out["pa"]["mean_nap"])
+        if subset == "crispr":
             out["pa"]["subset"] = "crispr"
-            out["pa"]["paper_nap"] = PAPER_PA_CRISPR
-            out["pa"]["delta_vs_paper"] = mean_nap - PAPER_PA_CRISPR
     if "pc" in tasks:
         try:
             pc = phenotypic_consistency(df)
