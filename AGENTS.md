@@ -35,9 +35,9 @@ Do not propose work that violates these:
    already on disk. Swapping `models.timm.architecture` (EfficientNet vs a
    DINOv2-class ViT) is in-scope for H12; that is not a re-run of paper
    DINOv2. H13 has a declared Raw-vs-MQ **timm analogue** (Wave R: cell-crop
-   EfficientNetV2-XL on streamed Orig TIFF vs local JPEG XL MQ). That is not
-   a Table 1 four-codec restudy; do not start HQ/D20 or re-embed paper DL
-   families.
+   EfficientNetV2-XL on streamed Orig TIFF vs streamed JUMP-lite
+   `jpegxl_lossy_mq.zarr`). That is not a Table 1 four-codec restudy; do not
+   start HQ/D20 or re-embed paper DL families.
 
 Campaign runbook: [docs/campaign.md](docs/campaign.md).
 

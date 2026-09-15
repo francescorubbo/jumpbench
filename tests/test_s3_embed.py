@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from io import BytesIO
 from pathlib import Path
 
@@ -12,7 +13,13 @@ from jumpbench.cli import _site_filters, build_parser
 from jumpbench.config import apply_overrides, load_models_config
 from jumpbench.data.images import CHANNEL_FILES
 from jumpbench.embed.generate import generate_embeddings
-from jumpbench.embed.loader import S3TiffLoader, iter_loaded_sites
+from jumpbench.embed.loader import (
+    S3TiffLoader,
+    decode_jump_lite_mq_array,
+    iter_loaded_sites,
+    mq_store_prefix,
+    site_load_fn,
+)
 from jumpbench.embed.sites import iter_embed_sites
 
 
@@ -33,6 +40,24 @@ def _site_index(site_key: str, prefix: str = "fake") -> pl.DataFrame:
             for channel in CHANNEL_FILES
         ]
     )
+
+
+def _mq_zarr_objects(stack: np.ndarray) -> dict[str, bytes]:
+    from imagecodecs.numcodecs import Jpegxl
+
+    encoded = Jpegxl(lossless=True).encode(stack)
+    meta = {
+        "shape": list(stack.shape),
+        "chunks": list(stack.shape),
+        "dtype": "<u2",
+        "fill_value": 0,
+        "order": "C",
+        "filters": None,
+        "dimension_separator": ".",
+        "compressor": {"id": "imagecodecs_jpegxl", "lossless": True},
+        "zarr_format": 2,
+    }
+    return {".zarray": json.dumps(meta).encode(), ".zattrs": b"{}", "0.0.0": encoded}
 
 
 def _write_jxl_site(root: Path, site_key: str, value: int = 1) -> None:
@@ -63,6 +88,99 @@ def test_embed_cli_image_source_s3():
     assert args.image_source == "s3"
     assert args.prefetch_jobs == 8
     assert args.crop_size == 96
+
+
+def test_embed_cli_image_source_s3_mq():
+    parser = build_parser()
+    args = parser.parse_args(["embed", "--model", "timm", "--image-source", "s3_mq"])
+    assert args.image_source == "s3_mq"
+
+
+def test_decode_jump_lite_mq_array_roundtrip():
+    stack = np.arange(5 * 8 * 8, dtype=np.uint16).reshape(5, 8, 8)
+    objs = _mq_zarr_objects(stack)
+    out = decode_jump_lite_mq_array(objs[".zarray"], objs["0.0.0"])
+    np.testing.assert_array_equal(out, stack)
+
+
+def test_s3_mq_loader_reads_zarr_objects(monkeypatch):
+    site = "s__b__p__A01__0"
+    stack = np.arange(5 * 8 * 8, dtype=np.uint16).reshape(5, 8, 8)
+    objs = _mq_zarr_objects(stack)
+    fetched: list[str] = []
+
+    def _read(_bucket: str, key: str, **_k) -> bytes:
+        fetched.append(key)
+        return objs[key.rsplit("/", 1)[-1]]
+
+    monkeypatch.setattr("jumpbench.embed.loader.read_s3_bytes", _read)
+    load, close = site_load_fn("s3_mq", Path("."), None)
+    try:
+        out = load(site)
+    finally:
+        close()
+    np.testing.assert_array_equal(out, stack)
+    prefix = mq_store_prefix()
+    assert f"{prefix}/{site}/.zarray" in fetched
+    assert f"{prefix}/{site}/0.0.0" in fetched
+
+
+def test_s3_mq_grid_all_sites_rejected(tmp_path: Path):
+    cfg = apply_overrides(load_models_config(), ["models.dummy.tile_size=16"])
+    with pytest.raises(ValueError, match="s3_mq is JUMP-lite 4-site only"):
+        generate_embeddings(
+            "dummy",
+            tmp_path,
+            tmp_path / "embeddings",
+            models_cfg=cfg,
+            image_source="s3_mq",
+            crop="grid",
+            site_set="all",
+        )
+
+
+def test_s3_mq_embed_skips_tiff_index(tmp_path: Path, monkeypatch):
+    site = "s__b__p__A01__0"
+    stack = np.zeros((5, 32, 32), dtype=np.uint16)
+    stack[:, 4:12, 4:12] = 200
+    objs = _mq_zarr_objects(stack)
+
+    def _read(_bucket: str, key: str, **_k) -> bytes:
+        return objs[key.rsplit("/", 1)[-1]]
+
+    monkeypatch.setattr("jumpbench.embed.loader.read_s3_bytes", _read)
+    monkeypatch.setattr(
+        "jumpbench.embed.generate.iter_embed_sites",
+        lambda *_a, **_k: iter([site]),
+    )
+    monkeypatch.setattr(
+        "jumpbench.embed.generate.build_tiff_index",
+        lambda **_k: (_ for _ in ()).throw(AssertionError("s3_mq must not build a TIFF index")),
+    )
+    monkeypatch.setattr(
+        "jumpbench.embed.generate.load_site_images",
+        lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("local load")),
+    )
+    cfg = apply_overrides(load_models_config(), ["models.dummy.tile_size=32"])
+    run_dir = tmp_path / "run"
+    out = generate_embeddings(
+        "dummy",
+        tmp_path / "images",
+        tmp_path / "embeddings",
+        models_cfg=cfg,
+        crop="grid",
+        site_set="jump_lite",
+        image_source="s3_mq",
+        pool="site",
+        run_dir=run_dir,
+        prefetch_jobs=1,
+    )
+    table = pl.read_parquet(out)
+    assert table.height == 1
+    provenance = (run_dir / "provenance.json").read_text()
+    assert '"image_source": "s3_mq"' in provenance
+    assert '"persist_codec": "jpegxl_mq"' in provenance
+    assert "jpegxl_lossy_mq.zarr" in provenance
 
 
 def test_index_cli_subset_batch_uncaps():

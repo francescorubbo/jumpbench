@@ -596,16 +596,17 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--output", default=str(resolve("data/embeddings")))
     e.add_argument(
         "--image-source",
-        choices=("local", "s3"),
+        choices=("local", "s3", "s3_mq"),
         default="local",
         help="local = files under --images. s3 = stream Orig TIFFs from CPG (never write them). "
-        "S3 ignores local JPEG XL; persist_codec is raw.",
+        "s3_mq = stream JUMP-lite jpegxl_lossy_mq.zarr (4-site only, never write them). "
+        "s3 ignores local JPEG XL and sets persist_codec=raw.",
     )
     e.add_argument(
         "--prefetch-jobs",
         type=int,
         default=None,
-        help="Parallel site loaders (default 16 for --image-source s3, 1 for local).",
+        help="Parallel site loaders (default 16 for --image-source s3/s3_mq, 1 for local).",
     )
     e.add_argument(
         "--codec",

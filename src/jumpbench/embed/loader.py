@@ -1,24 +1,96 @@
-"""Load one site as (C,H,W) uint16 from local files or streamed Orig TIFFs."""
+"""Load one site as (C,H,W) uint16 from local files or streamed CPG objects."""
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from io import BytesIO
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import polars as pl
 import tifffile
+from botocore.exceptions import ClientError
 
+from jumpbench.config import load_data_config
 from jumpbench.data.images import CHANNEL_FILES, load_site_images
 from jumpbench.data.s3util import GALLERY_BUCKET, read_s3_bytes
 
-IMAGE_SOURCES = ("local", "s3")
+IMAGE_SOURCES = ("local", "s3", "s3_mq")
+S3_SOURCES = ("s3", "s3_mq")
+MQ_META_KEY = ".zarray"
+MQ_CHUNK_KEY = "0.0.0"
 
 
 def decode_tiff_bytes(payload: bytes) -> np.ndarray:
     return np.asarray(tifffile.imread(BytesIO(payload)))
+
+
+def mq_store_prefix(cfg: dict[str, Any] | None = None) -> str:
+    """S3 key prefix of JUMP-lite jpegxl_lossy_mq.zarr (no trailing slash)."""
+    gallery = (cfg or load_data_config())["cellpainting_gallery"]
+    root = str(gallery["jump_lite_root"]).rstrip("/")
+    rel = str(gallery["images"]["mq"]).strip("/")
+    return f"{root}/{rel}"
+
+
+def mq_store_uri(cfg: dict[str, Any] | None = None) -> str:
+    return f"s3://{GALLERY_BUCKET}/{mq_store_prefix(cfg)}"
+
+
+def mq_site_keys(site_key: str, cfg: dict[str, Any] | None = None) -> dict[str, str]:
+    base = f"{mq_store_prefix(cfg)}/{site_key}"
+    return {"metadata": f"{base}/{MQ_META_KEY}", "chunk": f"{base}/{MQ_CHUNK_KEY}"}
+
+
+def _is_missing(exc: BaseException) -> bool:
+    if not isinstance(exc, ClientError):
+        return False
+    error = exc.response.get("Error", {}) if getattr(exc, "response", None) else {}
+    code = str(error.get("Code", ""))
+    status = exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+    return code in {"404", "NoSuchKey", "NotFound"} or status == 404
+
+
+def decode_jump_lite_mq_array(zarray: bytes, chunk: bytes) -> np.ndarray:
+    """Decode a one-chunk Zarr v2 JPEG XL site array from object bytes."""
+    from imagecodecs.numcodecs import Jpegxl
+
+    meta = json.loads(zarray)
+    compressor = meta.get("compressor") or {}
+    kwargs = {k: v for k, v in compressor.items() if k != "id" and v is not None}
+    decoded = np.asarray(Jpegxl(**kwargs).decode(chunk))
+    expected = tuple(meta["shape"])
+    if decoded.shape != expected:
+        decoded = decoded.astype(np.dtype(meta["dtype"]), copy=False).reshape(expected)
+    if decoded.dtype != np.uint16:
+        decoded = decoded.astype(np.uint16, copy=False)
+    if decoded.ndim != 3:
+        raise ValueError(f"Expected (C,H,W) JUMP-lite array, got shape {decoded.shape}")
+    return decoded
+
+
+class S3JumpLiteMqLoader:
+    """GET JUMP-lite MQ zarr sites from CPG; never write them to disk."""
+
+    def __init__(self, cfg: dict[str, Any] | None = None):
+        self._cfg = cfg
+
+    def close(self) -> None:
+        return None
+
+    def load(self, site_key: str) -> np.ndarray:
+        keys = mq_site_keys(site_key, self._cfg)
+        try:
+            zarray = read_s3_bytes(GALLERY_BUCKET, keys["metadata"])
+            chunk = read_s3_bytes(GALLERY_BUCKET, keys["chunk"])
+        except ClientError as exc:
+            if _is_missing(exc):
+                raise FileNotFoundError(f"No JUMP-lite MQ zarr array for {site_key}") from exc
+            raise
+        return decode_jump_lite_mq_array(zarray, chunk)
 
 
 def uri_map(index: pl.DataFrame) -> dict[str, dict[str, str]]:
@@ -92,6 +164,9 @@ def site_load_fn(
             return load_local(root, site_key)
 
         return _local, lambda: None
+    if image_source == "s3_mq":
+        loader = S3JumpLiteMqLoader()
+        return loader.load, loader.close
     if index is None:
         raise ValueError("S3 image_source requires a TIFF URI index")
     loader = S3TiffLoader(index)

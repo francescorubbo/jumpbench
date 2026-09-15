@@ -48,8 +48,9 @@ What this study *can* vary, all inside timm + CRISPR PA + PCA/TVN:
 - channel recipe (keep / drop stains) and bag-of-channels concat (timm’s
   native forward)
 - `models.timm.architecture` (conv vs DINOv2-class ViT; H12)
-- image source: streamed Orig TIFF (`--image-source s3`) vs local JPEG XL MQ
-  (H13 analogue; not a Table 1 Raw/HQ/MQ/D20 restudy)
+- image source: streamed Orig TIFF (`--image-source s3`) vs streamed JUMP-lite
+  MQ zarr (`--image-source s3_mq`; H13 analogue; not a Table 1 Raw/HQ/MQ/D20
+  restudy)
 
 ## Summary
 
@@ -522,24 +523,24 @@ OpenPhenom only.
 Table 1: per-task %Δ vs lossless Zstd on the four learned families.
 Figure 3c Target-2 pools those families plus `cp_measure` over
 normalization configs. S1.6.8: full-scale CP is archived Raw profiles.
-This repo persists JPEG XL MQ from Orig TIFFs for embeddings; JUMP-lite
-zarr codec variants are “compression study only” and not required for
-Figure 5-style runs (`README.md`). We will not re-embed MorphEM / DINOv2 /
-SubCell / OpenPhenom at Raw/HQ/MQ/D20.
+This repo can persist JPEG XL MQ from Orig TIFFs for all-FOV local files.
+4-site MQ embeddings stream JUMP-lite `jpegxl_lossy_mq.zarr` from CPG
+(`--image-source s3_mq`). HQ/D20 zarrs stay unused. We will not re-embed
+MorphEM / DINOv2 / SubCell / OpenPhenom at Raw/HQ/MQ/D20.
 
 **Testability:** partial analogue for Table 1. We will not re-embed MorphEM /
 DINOv2 / SubCell / OpenPhenom at Raw/HQ/MQ/D20. We will score one declared
-timm card on streamed Orig TIFF vs local JPEG XL MQ (Run1 CRISPR 4-site).
-Do not treat other MQ-only timm scores as a compression restudy until that
-pair is scored.
+timm card on streamed Orig TIFF vs streamed JUMP-lite MQ zarr (Run1 CRISPR
+4-site). Do not treat other MQ-only timm scores as a compression restudy
+until that pair is scored.
 
 **Planned test.** Champion card on Run1 4-site CRISPR, CRISPR PA after
 `paper_dl_default`: `--crop cell_fixed --crop-size 96`,
 `tf_efficientnetv2_xl.in21k`, five stains, `--pool site`. Raw arm:
-`--image-source s3` (Orig TIFF, never written). MQ twin: `--image-source local`
-on `data/images/`. Material if \|ΔNAP\| ≥ 0.03. If compression moves the
-score, pause MQ OFAT and ablate on Raw/stream only. Full CRISPR only after
-Run1. Not a Table 1 replication.
+`--image-source s3` (Orig TIFF, never written). MQ twin: `--image-source s3_mq`
+(JUMP-lite `jpegxl_lossy_mq.zarr`, never written). Material if \|ΔNAP\| ≥ 0.03.
+If compression moves the score, pause MQ OFAT and ablate on Raw/stream only.
+Full CRISPR only after Run1. Not a Table 1 replication.
 
 **Falsifier.** Reachable for the analogue: cell-crop EfficientNetV2-XL shows
 \|ΔNAP\| < 0.03 Raw vs MQ on Run1. Then compression is not first-order *for
@@ -550,7 +551,8 @@ HQ/D20) stays unreplicated.
 
 **Decision:** 2026-09-11 — Table 1 Raw/HQ/MQ/D20 re-benchmark not in this
 study. 2026-09-14 — declared Raw-vs-MQ timm analogue is in campaign Wave R
-(not yet scored). Status stays `open`.
+(not yet scored). 2026-09-15 — MQ twin streams JUMP-lite `jpegxl_lossy_mq.zarr`
+(`--image-source s3_mq`), not local `.jxl`. Status stays `open`.
 
 ---
 

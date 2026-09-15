@@ -18,7 +18,13 @@ from jumpbench.data.masks import DEFAULT_MASK_CODEC, cache_masks, load_mask
 from jumpbench.data.metadata import parse_site_key, well_id_from_site_key
 from jumpbench.embed.backends import build_backend
 from jumpbench.embed.crops import crop_cells_bbox, crop_cells_fixed, resize_tiles
-from jumpbench.embed.loader import IMAGE_SOURCES, iter_loaded_sites, site_load_fn
+from jumpbench.embed.loader import (
+    IMAGE_SOURCES,
+    S3_SOURCES,
+    iter_loaded_sites,
+    mq_store_uri,
+    site_load_fn,
+)
 from jumpbench.embed.preprocess import apply_preprocess, apply_preprocess_tiles
 from jumpbench.embed.preview import montage_rgb, write_png
 from jumpbench.embed.sites import CELL_CROPS, iter_embed_sites
@@ -436,6 +442,11 @@ def generate_embeddings(
         raise ValueError(f"image_source must be one of {IMAGE_SOURCES}, got {image_source!r}")
     if image_source == "s3":
         codec = "raw"
+    if image_source == "s3_mq":
+        codec = "jpegxl_mq"
+        if crop not in CELL_CROPS and site_set == "all":
+            raise ValueError("s3_mq is JUMP-lite 4-site only; use --sites jump_lite")
+        site_set = "jump_lite"
     card = resolve_model(model, models_cfg)
     card["crop"] = crop
     card["mask_object"] = mask_object
@@ -471,7 +482,7 @@ def generate_embeddings(
         )
     )
     index = site_index
-    prefetch = 16 if image_source == "s3" else 1
+    prefetch = 16 if image_source in S3_SOURCES else 1
     if prefetch_jobs is not None:
         prefetch = int(prefetch_jobs)
 
@@ -671,7 +682,11 @@ def generate_embeddings(
             "image_source": image_source,
             "input_hw": int(card["crop_size"]),
             "images_root": (
-                "s3://cellpainting-gallery" if image_source == "s3" else str(images_root)
+                mq_store_uri()
+                if image_source == "s3_mq"
+                else "s3://cellpainting-gallery"
+                if image_source == "s3"
+                else str(images_root)
             ),
             "persist_codec": codec,
             "output": str(out),

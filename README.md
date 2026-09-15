@@ -137,8 +137,9 @@ output on purpose.
 
 Frozen v1.0 manifests and RefChem matches are in this checkout
 (`metadata/`, `data/refchemdb/`), copied from JUMP_lite. Images and
-CellProfiler profiles come from the **original public JUMP objects**, not
-from JUMP-lite's still-unpublished JPEG XL zarrs.
+CellProfiler profiles come from the **original public JUMP objects**. 4-site
+MQ embeddings can stream JUMP-lite `jpegxl_lossy_mq.zarr` (`--image-source s3_mq`).
+Local `.jxl` from `download-images` remains for all-FOV files; do not delete it.
 
 The paper's uncompressed ranking (Figure 5) compared 4-site embeddings to
 assembled CellProfiler that still averages 6–9 sites/well. Because this repo
@@ -188,7 +189,7 @@ jumpbench embed --model timm --crop cell_fixed --images data/images
 | Original JUMP pixels | public now | `jumpbench download-images` streams TIFF, persists JPEG XL MQ |
 | Cellpose instance masks | public now | `jumpbench download-masks` (also prefetched by `--crop cell_*` embed) |
 | Assembled CellProfiler | public now ~13.5 GB | `jumpbench download-paper-cp` (`cpg0016-jump-assembled` v1.0c) |
-| JUMP-lite JPEG XL zarr (MQ 92 GB, HQ 238 GB, …) | CPG promotion mid-Sept 2026 | compression study only; not required for Figure 5-style raw embeddings |
+| JUMP-lite MQ zarr (`jpegxl_lossy_mq.zarr`) | public now | `jumpbench embed --image-source s3_mq` (4-site only; no HQ/D20) |
 | Their per-site embeddings | CPG `workspace_dl/embeddings/` | optional; this repo regenerates them |
 
 Smoke test (no network, no weights):
