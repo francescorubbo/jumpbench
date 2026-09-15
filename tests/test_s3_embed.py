@@ -183,6 +183,56 @@ def test_s3_mq_embed_skips_tiff_index(tmp_path: Path, monkeypatch):
     assert "jpegxl_lossy_mq.zarr" in provenance
 
 
+def test_s3_mq_embed_skips_missing_site(tmp_path: Path, monkeypatch):
+    present = "s__b__p__A01__1"
+    missing = "s__b__p__A01__2"
+    store: dict[str, bytes] = {}
+    for name, payload in _mq_zarr_objects(np.full((5, 32, 32), 40, dtype=np.uint16)).items():
+        store[f"{mq_store_prefix()}/{present}/{name}"] = payload
+
+    def _read(_bucket: str, key: str, **_k) -> bytes:
+        from botocore.exceptions import ClientError
+
+        if key not in store:
+            raise ClientError(
+                {
+                    "Error": {"Code": "404", "Message": "Not Found"},
+                    "ResponseMetadata": {"HTTPStatusCode": 404},
+                },
+                "GetObject",
+            )
+        return store[key]
+
+    monkeypatch.setattr("jumpbench.embed.loader.read_s3_bytes", _read)
+    monkeypatch.setattr(
+        "jumpbench.embed.generate.iter_embed_sites",
+        lambda *_a, **_k: iter([missing, present]),
+    )
+    monkeypatch.setattr(
+        "jumpbench.embed.generate.load_site_images",
+        lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("local load")),
+    )
+    cfg = apply_overrides(load_models_config(), ["models.dummy.tile_size=32"])
+    run_dir = tmp_path / "run"
+    out = generate_embeddings(
+        "dummy",
+        tmp_path / "images",
+        tmp_path / "embeddings",
+        models_cfg=cfg,
+        crop="grid",
+        site_set="jump_lite",
+        image_source="s3_mq",
+        pool="site",
+        run_dir=run_dir,
+        prefetch_jobs=2,
+    )
+    table = pl.read_parquet(out)
+    assert table["site_key"].to_list() == [present]
+    provenance = json.loads((run_dir / "provenance.json").read_text())
+    assert provenance["n_sites_skipped_no_image"] == 1
+    assert provenance["n_sites_embedded"] == 1
+
+
 def test_index_cli_subset_batch_uncaps():
     parser = build_parser()
     args = parser.parse_args(
@@ -387,3 +437,21 @@ def test_prefetch_yields_all_keys():
     got = [key for key, _img in iter_loaded_sites(keys, _load, prefetch=3)]
     assert sorted(got) == keys
     assert sorted(seen) == keys
+
+
+def test_prefetch_skips_missing_with_callback():
+    missing: list[str] = []
+
+    def _load(key: str) -> np.ndarray:
+        if key == "b":
+            raise FileNotFoundError(key)
+        return np.zeros((1, 2, 2), dtype=np.uint16)
+
+    got = [
+        key
+        for key, _img in iter_loaded_sites(
+            ["a", "b", "c"], _load, prefetch=3, on_missing=missing.append
+        )
+    ]
+    assert sorted(got) == ["a", "c"]
+    assert missing == ["b"]

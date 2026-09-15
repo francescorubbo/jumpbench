@@ -551,6 +551,7 @@ def generate_embeddings(
 
     backend = None
     n_skipped_no_mask = 0
+    n_skipped_no_image = 0
     n_skipped_edge = 0
     n_sites_embedded = len(completed)
     n_crops_total = 0
@@ -579,8 +580,20 @@ def generate_embeddings(
     sum_wait = 0.0
     sum_embed = 0.0
     t_next = time.perf_counter()
+
+    def _on_missing_image(site_key: str) -> None:
+        nonlocal n_skipped_no_image
+        n_skipped_no_image += 1
+        if n_skipped_no_image == 1 or n_skipped_no_image % 100 == 0:
+            _status(f"skipped missing image ({n_skipped_no_image}): {site_key}")
+
     try:
-        site_iter = iter_loaded_sites(pending, load_fn, prefetch=prefetch)
+        site_iter = iter_loaded_sites(
+            pending,
+            load_fn,
+            prefetch=prefetch,
+            on_missing=_on_missing_image if image_source in S3_SOURCES else None,
+        )
         for key, image in tqdm(site_iter, total=len(pending), desc=f"embed:{card['name']}:{crop}"):
             wait_s = time.perf_counter() - t_next
             if coverage is None and crop == "grid":
@@ -624,6 +637,8 @@ def generate_embeddings(
             t_next = time.perf_counter()
     finally:
         close_fn()
+    if n_skipped_no_image:
+        _status(f"skipped {n_skipped_no_image} sites with missing S3 images")
 
     if frames:
         _flush_shard(frames, shard_dir, shard_index, completed_path, flushed_keys)
@@ -678,6 +693,7 @@ def generate_embeddings(
             "n_sites": len(keys),
             "n_sites_embedded": n_sites_embedded,
             "n_sites_skipped_no_mask": n_skipped_no_mask,
+            "n_sites_skipped_no_image": n_skipped_no_image,
             "n_objects_skipped_edge": n_skipped_edge,
             "image_source": image_source,
             "input_hw": int(card["crop_size"]),
