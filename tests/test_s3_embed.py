@@ -43,9 +43,9 @@ def _site_index(site_key: str, prefix: str = "fake") -> pl.DataFrame:
 
 
 def _mq_zarr_objects(stack: np.ndarray) -> dict[str, bytes]:
-    from imagecodecs.numcodecs import Jpegxl
+    import imagecodecs
 
-    encoded = Jpegxl(lossless=True).encode(stack)
+    encoded = bytes(imagecodecs.jpegxl_encode(stack, lossless=True))
     meta = {
         "shape": list(stack.shape),
         "chunks": list(stack.shape),

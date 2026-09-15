@@ -56,12 +56,10 @@ def _is_missing(exc: BaseException) -> bool:
 
 def decode_jump_lite_mq_array(zarray: bytes, chunk: bytes) -> np.ndarray:
     """Decode a one-chunk Zarr v2 JPEG XL site array from object bytes."""
-    from imagecodecs.numcodecs import Jpegxl
+    import imagecodecs
 
     meta = json.loads(zarray)
-    compressor = meta.get("compressor") or {}
-    kwargs = {k: v for k, v in compressor.items() if k != "id" and v is not None}
-    decoded = np.asarray(Jpegxl(**kwargs).decode(chunk))
+    decoded = np.asarray(imagecodecs.jpegxl_decode(chunk))
     expected = tuple(meta["shape"])
     if decoded.shape != expected:
         decoded = decoded.astype(np.dtype(meta["dtype"]), copy=False).reshape(expected)
