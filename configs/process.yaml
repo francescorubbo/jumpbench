@@ -55,7 +55,7 @@ presets:
     tvn_efaar: false
     inverse_normal_transform: false
 
-  # Diagnostic: PCA then per-plate z-score on negcons. Not a campaign endpoint.
+  # Campaign default: PCA-100 then per-plate z-score on negcons. No TVN.
   simple_pca100:
     drop_na_frac: 1.0
     variance_freq_cut: 0.0

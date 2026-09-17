@@ -552,6 +552,7 @@ def generate_embeddings(
     backend = None
     n_skipped_no_mask = 0
     n_skipped_no_image = 0
+    skipped_no_image_keys: list[str] = []
     n_skipped_edge = 0
     n_sites_embedded = len(completed)
     n_crops_total = 0
@@ -584,6 +585,7 @@ def generate_embeddings(
     def _on_missing_image(site_key: str) -> None:
         nonlocal n_skipped_no_image
         n_skipped_no_image += 1
+        skipped_no_image_keys.append(site_key)
         if n_skipped_no_image == 1 or n_skipped_no_image % 100 == 0:
             _status(f"skipped missing image ({n_skipped_no_image}): {site_key}")
 
@@ -638,7 +640,13 @@ def generate_embeddings(
     finally:
         close_fn()
     if n_skipped_no_image:
-        _status(f"skipped {n_skipped_no_image} sites with missing S3 images")
+        skip_path = dest / "skipped_sites_no_image.txt"
+        prior = skip_path.read_text(encoding="utf-8").splitlines() if skip_path.exists() else []
+        skip_path.write_text(
+            "\n".join(dict.fromkeys([*prior, *skipped_no_image_keys])) + "\n",
+            encoding="utf-8",
+        )
+        _status(f"skipped {n_skipped_no_image} sites with missing S3 images → {skip_path}")
 
     if frames:
         _flush_shard(frames, shard_dir, shard_index, completed_path, flushed_keys)

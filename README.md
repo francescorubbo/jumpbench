@@ -91,10 +91,12 @@ jumpbench embed --model {dinov2,morphem,openphenom,subcell,timm,dummy}
         │  per-site tiles, provenance.json
         ▼
 jumpbench aggregate --how median
+# Raw vs MQ: restrict to the peer run's site_key set (CPG holes)
+# jumpbench aggregate --input RAW.parquet --keep-sites-from MQ_RUN_DIR --output ...
         │  well-level raw features
         ▼
-jumpbench process --preset paper_dl_default
-        │  RobustMAD → PCA → TVN-EFAAR (CPU)
+jumpbench process --preset simple_pca100
+        │  PCA-100 → plate negcon z-score (CPU)
         ▼
 jumpbench evaluate --tasks pa,pc
 jumpbench compare --mode fair_all_sites --profile morphem=... --profile cellprofiler_paper=...
@@ -204,6 +206,8 @@ jumpbench smoke
 configs/           model cards, S3 paths, processing presets
 docs/protocol.md   exact PA/PC / fairness rules
 docs/hypotheses.md living ranking-fairness preregistration
+docs/campaign.md   CRISPR PA + timm runbook
+docs/wave_r_process_and_mq.md  Raw vs MQ + process-grid scores
 AGENTS.md          study constraints for agents working in this repo
 metadata/          frozen JUMP-lite v1.0 cohort
 src/jumpbench/     download → embed → aggregate → process → evaluate

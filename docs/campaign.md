@@ -3,8 +3,8 @@
 Runbook for the CRISPR PA + timm experiments declared in
 [hypotheses.md](hypotheses.md). Protocol details stay in [protocol.md](protocol.md).
 
-Endpoint: **CRISPR phenotypic activity (mean NAP)** after `paper_dl_default`
-PCA/TVN, fit on the same CRISPR wells that were embedded. No PC, MOTIVE,
+Endpoint: **CRISPR phenotypic activity (mean NAP)** after `simple_pca100`
+(PCA-100, plate negcon z-score), fit on the same CRISPR wells that were embedded. No PC, MOTIVE,
 11-task mean, MorphEM/DINOv2/SubCell re-embed, or Table 1 Raw/HQ/MQ/D20
 restudy. Wave R is a **declared Raw-vs-MQ timm analogue** (H13), not that
 restudy.
@@ -31,7 +31,7 @@ Change one axis per arm.
 | Cohort | CRISPR `--subset crispr --batch 20220914_Run1` |
 | Images | `jpegxl_mq` |
 | Pool | `--pool site` |
-| Process | `paper_dl_default`, CRISPR wells only |
+| Process | `simple_pca100`, CRISPR wells only |
 | Score | `evaluate --tasks pa --subset crispr` |
 
 Pilot materiality: an arm **moves** B0 if \|ΔNAP\| ≥ **0.03** on Run1.
@@ -79,7 +79,7 @@ jumpbench embed --model timm --images data/images \
 jumpbench aggregate \
   --input data/embeddings/timm/smoke_run1_plate/site_embeddings.parquet \
   --output data/profiles/timm_smoke_run1_plate.parquet
-jumpbench process --preset paper_dl_default \
+jumpbench process --preset simple_pca100 \
   --input data/profiles/timm_smoke_run1_plate.parquet \
   --output data/processed/timm_smoke_run1_plate.parquet
 jumpbench evaluate --tasks pa --subset crispr \
@@ -110,6 +110,8 @@ jumpbench embed --model dummy --image-source s3_mq \
 
 ## Wave R — Raw champion, then MQ twin (H13)
 
+Write-up of the scores: [wave_r_process_and_mq.md](wave_r_process_and_mq.md).
+
 XL at 96 px is not the Wave 3 224 px memory case: use `runtime.batch_size=64`
 (raise to 128 if VRAM allows). `batch_size=4` is ~350 CUDA syncs per site.
 
@@ -122,16 +124,6 @@ jumpbench embed --model timm --image-source s3 \
   --set models.timm.architecture=tf_efficientnetv2_xl.in21k \
   --set runtime.batch_size=64
 
-jumpbench aggregate \
-  --input data/embeddings/timm/run1/cell_fixed_jump_lite_96_efficientnetv2_xl_5ch_raw/site_embeddings.parquet \
-  --output data/profiles/timm_run1_xl_c96_raw.parquet
-jumpbench process --preset paper_dl_default \
-  --input data/profiles/timm_run1_xl_c96_raw.parquet \
-  --output data/processed/timm_run1_xl_c96_raw.parquet
-jumpbench evaluate --tasks pa --subset crispr \
-  --input data/processed/timm_run1_xl_c96_raw.parquet \
-  --output data/results/campaign/run1_xl_c96_raw.json
-
 # Run1 MQ twin (stream JUMP-lite jpegxl_lossy_mq.zarr)
 jumpbench embed --model timm --image-source s3_mq \
   --subset crispr --sites jump_lite --batch 20220914_Run1 \
@@ -140,20 +132,67 @@ jumpbench embed --model timm --image-source s3_mq \
   --set models.timm.architecture=tf_efficientnetv2_xl.in21k \
   --set runtime.batch_size=64
 
+# Intersect site_key both ways so CPG zarr/TIFF holes drop on the peer
+# (no re-embed). A well must not be 4-site Raw vs 3-site MQ.
+jumpbench aggregate \
+  --input data/embeddings/timm/run1/cell_fixed_jump_lite_96_efficientnetv2_xl_5ch_raw/site_embeddings.parquet \
+  --keep-sites-from data/embeddings/timm/run1/cell_fixed_jump_lite_96_efficientnetv2_xl_5ch_jpegxl_mq \
+  --output data/profiles/timm_run1_xl_c96_raw.parquet
+jumpbench process --preset simple_pca100 \
+  --input data/profiles/timm_run1_xl_c96_raw.parquet \
+  --output data/processed/timm_run1_xl_c96_raw_simple_pca100.parquet
+jumpbench evaluate --tasks pa --subset crispr \
+  --input data/processed/timm_run1_xl_c96_raw_simple_pca100.parquet \
+  --output data/results/campaign/run1_xl_c96_raw_simple_pca100.json
+
 jumpbench aggregate \
   --input data/embeddings/timm/run1/cell_fixed_jump_lite_96_efficientnetv2_xl_5ch_jpegxl_mq/site_embeddings.parquet \
+  --keep-sites-from data/embeddings/timm/run1/cell_fixed_jump_lite_96_efficientnetv2_xl_5ch_raw \
   --output data/profiles/timm_run1_xl_c96_mq.parquet
-jumpbench process --preset paper_dl_default \
+jumpbench process --preset simple_pca100 \
   --input data/profiles/timm_run1_xl_c96_mq.parquet \
-  --output data/processed/timm_run1_xl_c96_mq.parquet
+  --output data/processed/timm_run1_xl_c96_mq_simple_pca100.parquet
 jumpbench evaluate --tasks pa --subset crispr \
-  --input data/processed/timm_run1_xl_c96_mq.parquet \
-  --output data/results/campaign/run1_xl_c96_mq.json
+  --input data/processed/timm_run1_xl_c96_mq_simple_pca100.parquet \
+  --output data/results/campaign/run1_xl_c96_mq_simple_pca100.json
 ```
 
 If \|ΔNAP\| (Raw vs MQ) ≥ 0.03, **stop MQ OFAT** and ablate on Raw/stream
 only. If not, later OFAT may stay on MQ. Full CRISPR (drop `--batch`) only
 if the Run1 champion is material vs B0-on-MQ or vs this MQ twin.
+
+`simple_pca100` Δ is −0.120 (stop MQ OFAT). Independently swept TVN winners
+are Δ −0.017; matched high-NAP configs still have MQ below Raw.
+
+Score both arms on the **intersection** of embedded `site_key`s. MQ can skip
+CPG zarr holes (`n_sites_skipped_no_image`, `skipped_sites_no_image.txt`);
+`--keep-sites-from` drops those sites from Raw well aggregation so a well is
+not 4-site Raw vs 3-site MQ. Filter both ways in case Raw also missed TIFFs.
+
+### Processing first (H6), then compression (H13)
+
+On those Raw wells vs the MQ twin, CRISPR PA mean NAP (same 336 perturbations):
+
+| Process | Raw | MQ | Δ (MQ−Raw) |
+|---|---:|---:|---:|
+| `simple_pca100` | 0.453 | 0.332 | −0.120 |
+| `sweep_paper_dl_v11_lite` winner | 0.420 | 0.404 | −0.017 |
+| matched Raw-winner config on MQ | 0.420 | 0.393 | −0.028 |
+| `paper_dl_default` | 0.038 | 0.116 | +0.078 |
+
+Sweep winners are independently selected (`standardize`, fit-on-all-wells, ε=0.05; Raw prune+PCA-170, MQ no-prune+PCA-304). Every config with Raw NAP ≥ 0.38 is worse on MQ (n=70, median Δ −0.025, range −0.011 to −0.036). The 0.12 `simple_pca100` drop is larger than the TVN-grid drop; `paper_dl_default` still flips sign because it tanks Raw.
+
+```bash
+jumpbench sweep run --grid sweep_paper_dl_v11_lite --preset paper_dl_default \
+  --input data/profiles/timm_run1_xl_c96_mq.parquet \
+  --processed-dir data/processed/timm_run1_xl_c96_mq_dl_sweep \
+  --results-dir data/results/campaign/timm_run1_xl_c96_mq_dl_sweep \
+  --jobs 16 --subset crispr --tasks pa
+jumpbench sweep gather --results-dir data/results/campaign/timm_run1_xl_c96_mq_dl_sweep
+```
+
+The DL Raw grid spans 0.030–0.420 (420 configs). RobustMAD fit on negcons never
+exceeds 0.052 on Raw. Sweep `--jobs` > 1 pins one BLAS thread per process.
 
 Fallback if streaming is flaky **and** ≥0.5 TiB is free (separate root so
 `.jxl` cannot win):
@@ -177,7 +216,7 @@ jumpbench embed --model timm --images data/images \
 jumpbench aggregate \
   --input data/embeddings/timm/run1/grid_jump_lite_224_efficientnet_b0_5ch/site_embeddings.parquet \
   --output data/profiles/timm_run1_b0.parquet
-jumpbench process --preset paper_dl_default \
+jumpbench process --preset simple_pca100 \
   --input data/profiles/timm_run1_b0.parquet \
   --output data/processed/timm_run1_b0.parquet
 jumpbench evaluate --tasks pa --subset crispr \
@@ -205,7 +244,7 @@ jumpbench evaluate --tasks pa --subset crispr \
   --output data/results/campaign/run1_cp.json
 ```
 
-## Wave 2 — Cheap OFAT (same Run1, 4-site, `paper_dl_default`)
+## Wave 2 — Cheap OFAT (same Run1, 4-site, `simple_pca100`)
 
 Each arm is B0 plus one `--set` / `--sites` change. Reuse the Wave 1 aggregate
 → process → evaluate block with a new `--run-dir` and profile names.
@@ -230,7 +269,8 @@ jumpbench sweep gather --results-dir data/results/campaign/timm_run1_b0_dl_sweep
 ```
 
 Report `paper_dl_default` **and** the sweep winner. Do not treat best-of-sweep
-as the representation score.
+as the representation score. Wave R already ran this grid on XL cell-96 Raw
+(`data/results/campaign/timm_run1_xl_c96_raw_dl_sweep/`).
 
 ## Wave 2.5 — Cell-crop window OFAT (H14)
 

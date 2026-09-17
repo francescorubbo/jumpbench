@@ -28,7 +28,9 @@ JUMP_lite `prep/build_jl_index.sql`:
 4-site MQ embeddings stream JUMP-lite `jpegxl_lossy_mq.zarr` from CPG
 (`--image-source s3_mq`): one uint16 `(C,H,W)` array per frozen site, Jpegxl
 distance 3.0. That store has no extra FOVs; `--sites all` is rejected. HQ/D20
-zarrs are not used.
+zarrs are not used. Missing zarr arrays skip the site (`skipped_sites_no_image.txt`).
+Score Raw vs MQ after `jumpbench aggregate --keep-sites-from` on the peer
+embedding run so both well profiles use the same FOVs.
 
 ```bash
 jumpbench download-images --max-wells 1          # all FOVs of 1 well (often 9)

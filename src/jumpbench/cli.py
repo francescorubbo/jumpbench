@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import multiprocessing as mp
+import os
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
@@ -246,7 +248,18 @@ def cmd_embed(args: argparse.Namespace) -> int:
 
 
 def cmd_aggregate(args: argparse.Namespace) -> int:
-    path = aggregate_path(Path(args.input), Path(args.output), how=args.how)
+    keep = Path(args.keep_sites_from) if args.keep_sites_from else None
+    path = aggregate_path(
+        Path(args.input), Path(args.output), how=args.how, keep_sites_from=keep
+    )
+    if keep is not None:
+        sidecar = path.with_name(path.name + ".site_filter.json")
+        stats = json.loads(sidecar.read_text())
+        print(
+            f"kept {stats['n_sites_after']} / {stats['n_sites_before']} sites "
+            f"(dropped {stats['n_sites_dropped']} not in --keep-sites-from)",
+            file=sys.stderr,
+        )
     print(path)
     return 0
 
@@ -325,6 +338,18 @@ def _shard_payloads(args: argparse.Namespace) -> tuple[str, list[dict]]:
     return device, payloads
 
 
+def _pin_blas_threads() -> None:
+    """One BLAS thread per process so --jobs N does not oversubscribe."""
+    for key in (
+        "OMP_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "MKL_NUM_THREADS",
+        "NUMEXPR_NUM_THREADS",
+        "VECLIB_MAXIMUM_THREADS",
+    ):
+        os.environ.setdefault(key, "1")
+
+
 def cmd_sweep_run(args: argparse.Namespace) -> int:
     try:
         device, payloads = _shard_payloads(args)
@@ -355,7 +380,9 @@ def cmd_sweep_run(args: argparse.Namespace) -> int:
             print(_run_shard_payload(payload))
         return 0
     failed = 0
-    with ProcessPoolExecutor(max_workers=jobs) as pool:
+    _pin_blas_threads()
+    ctx = mp.get_context("spawn")
+    with ProcessPoolExecutor(max_workers=jobs, mp_context=ctx) as pool:
         futures = {pool.submit(_run_shard_payload, payload): payload for payload in payloads}
         for fut in as_completed(futures):
             payload = futures[fut]
@@ -693,12 +720,20 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--input", required=True)
     a.add_argument("--output", required=True)
     a.add_argument("--how", choices=("median", "mean"), default="median")
+    a.add_argument(
+        "--keep-sites-from",
+        help=(
+            "Restrict to site_key values present in another embed parquet, "
+            "run directory, or text list. Use for Raw vs MQ when one arm "
+            "skipped CPG holes (no re-embed)."
+        ),
+    )
     a.set_defaults(func=cmd_aggregate)
 
     pr = sub.add_parser("process", help="RobustMAD / PCA / TVN-EFAAR profile processing")
     pr.add_argument("--input", required=True)
     pr.add_argument("--output", required=True)
-    pr.add_argument("--preset", default="paper_dl_default")
+    pr.add_argument("--preset", default="simple_pca100")
     pr.add_argument(
         "--device",
         choices=DEVICES,

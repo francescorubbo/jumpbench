@@ -364,7 +364,7 @@ def attach_perturbation_metadata(df: pl.DataFrame) -> pl.DataFrame:
 
 def process_profiles(
     df: pl.DataFrame,
-    preset: str = "paper_dl_default",
+    preset: str = "simple_pca100",
     process_cfg: dict[str, Any] | None = None,
     overrides: list[str] | None = None,
     preset_overrides: dict[str, Any] | None = None,
@@ -464,7 +464,7 @@ def process_profiles(
 def process_path(
     input_path: Path,
     output_path: Path,
-    preset: str = "paper_dl_default",
+    preset: str = "simple_pca100",
     overrides: list[str] | None = None,
     preset_overrides: dict[str, Any] | None = None,
     device: str = "cpu",
