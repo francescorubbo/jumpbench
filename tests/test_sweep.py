@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -56,6 +57,14 @@ def test_select_index_out_of_range():
 def test_dl_grid_kept():
     configs = expand_grid(name="sweep_paper_dl_v11_lite")
     assert len(configs) == 420
+
+
+def test_pin_blas_threads_defaults(monkeypatch):
+    from jumpbench.profiles.sweep import _pin_blas_threads
+
+    monkeypatch.delenv("OMP_NUM_THREADS", raising=False)
+    _pin_blas_threads()
+    assert os.environ["OMP_NUM_THREADS"] == "1"
 
 
 def test_gather_ranks_by_crispr_mean_nap(tmp_path: Path):

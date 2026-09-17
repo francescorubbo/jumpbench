@@ -7,6 +7,7 @@ Jobs are independent: process one config, then evaluate CRISPR PA.
 from __future__ import annotations
 
 import json
+import os
 from itertools import product
 from pathlib import Path
 from typing import Any
@@ -100,6 +101,17 @@ def select_configs(
 
 def result_path(results_dir: Path, config_id_str: str) -> Path:
     return Path(results_dir) / f"{config_id_str}.json"
+
+
+def _pin_blas_threads() -> None:
+    for key in (
+        "OMP_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "MKL_NUM_THREADS",
+        "NUMEXPR_NUM_THREADS",
+        "VECLIB_MAXIMUM_THREADS",
+    ):
+        os.environ.setdefault(key, "1")
 
 
 def processed_path(processed_dir: Path, config_id_str: str) -> Path:
@@ -214,6 +226,7 @@ def run_shard(
     force: bool = False,
 ) -> Path:
     """Process one config and evaluate CRISPR PA. Skip if the result JSON exists."""
+    _pin_blas_threads()
     result_file = Path(result)
     if result_file.exists() and not force:
         return result_file

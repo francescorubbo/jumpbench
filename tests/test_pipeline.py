@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import numpy as np
 import polars as pl
 import pytest
@@ -141,6 +144,71 @@ def test_channel_select_and_reorder():
     reordered = reorder_channels(selected, names, ["Mito", "ER", "DNA", "AGP"])
     assert reordered[0, 0, 0] == 3  # Mito
     assert reordered[3, 0, 0] == 0  # AGP
+
+
+def test_keep_sites_from_drops_peer_holes(tmp_path: Path):
+    from jumpbench.profiles.aggregate import aggregate_path
+
+    rows = []
+    for site in ("1", "2", "3"):
+        rows.append(
+            {
+                "Metadata_Source": "s",
+                "Metadata_Batch": "b",
+                "Metadata_Plate": "p",
+                "Metadata_Well": "A01",
+                "Metadata_Site": site,
+                "site_key": f"s__b__p__A01__{site}",
+                "feat_0000": float(site),
+            }
+        )
+    extra_well = {
+        "Metadata_Source": "s",
+        "Metadata_Batch": "b",
+        "Metadata_Plate": "p",
+        "Metadata_Well": "A02",
+        "Metadata_Site": "1",
+        "site_key": "s__b__p__A02__1",
+        "feat_0000": 99.0,
+    }
+    raw = pl.DataFrame([*rows, extra_well])
+    mq = pl.DataFrame(rows[:2])
+    raw_path = tmp_path / "raw.parquet"
+    mq_path = tmp_path / "mq.parquet"
+    raw.write_parquet(raw_path)
+    mq.write_parquet(mq_path)
+    out = tmp_path / "wells.parquet"
+    aggregate_path(raw_path, out, keep_sites_from=mq_path)
+    wells = pl.read_parquet(out)
+    assert wells.height == 1
+    assert wells["Metadata_Well"][0] == "A01"
+    # sites 1 and 2 only; median of 1.0 and 2.0
+    assert wells["feat_0000"][0] == pytest.approx(1.5)
+    stats = json.loads((tmp_path / "wells.parquet.site_filter.json").read_text())
+    assert stats["n_sites_before"] == 4
+    assert stats["n_sites_after"] == 2
+    assert stats["n_sites_dropped"] == 2
+
+
+def test_load_site_keys_from_run_dir(tmp_path: Path):
+    from jumpbench.profiles.aggregate import load_site_keys
+
+    keys = ["s__b__p__A01__1", "s__b__p__A01__2"]
+    run = tmp_path / "mq"
+    run.mkdir()
+    pl.DataFrame({"site_key": keys}).write_parquet(run / "site_embeddings.parquet")
+    assert load_site_keys(run) == keys
+    listing = tmp_path / "keys.txt"
+    listing.write_text("\n".join(keys) + "\n")
+    assert load_site_keys(listing) == keys
+
+
+def test_filter_to_site_keys_empty_raises():
+    from jumpbench.profiles.aggregate import filter_to_site_keys
+
+    df = pl.DataFrame({"site_key": ["s__b__p__A01__1"], "feat_0000": [1.0]})
+    with pytest.raises(ValueError, match="No sites left"):
+        filter_to_site_keys(df, ["s__b__p__A01__9"])
 
 
 def test_median_tile_then_site_aggregation():

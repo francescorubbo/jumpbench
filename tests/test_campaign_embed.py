@@ -56,6 +56,18 @@ def test_embed_cli_campaign_flags():
     assert mq.image_source == "s3_mq"
     masks = parser.parse_args(["download-masks", "--batch", "20220914_Run1", "--subset", "crispr"])
     assert masks.batch == ["20220914_Run1"]
+    agg = parser.parse_args(
+        [
+            "aggregate",
+            "--input",
+            "raw.parquet",
+            "--output",
+            "wells.parquet",
+            "--keep-sites-from",
+            "mq_run",
+        ]
+    )
+    assert agg.keep_sites_from == "mq_run"
 
 
 def test_filter_wells_batch_before_cap():

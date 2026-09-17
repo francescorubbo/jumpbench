@@ -231,6 +231,8 @@ def test_s3_mq_embed_skips_missing_site(tmp_path: Path, monkeypatch):
     provenance = json.loads((run_dir / "provenance.json").read_text())
     assert provenance["n_sites_skipped_no_image"] == 1
     assert provenance["n_sites_embedded"] == 1
+    skipped = (run_dir / "skipped_sites_no_image.txt").read_text().splitlines()
+    assert skipped == [missing]
 
 
 def test_index_cli_subset_batch_uncaps():

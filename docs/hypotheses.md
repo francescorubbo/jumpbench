@@ -28,10 +28,10 @@ These bind every planned test.
 1. **Masks exist only for the JUMP-lite 4-site subset.** `--crop cell_fixed` /
    `cell_bbox` is 4-site-only. All-FOV (`--sites all`) work is **grid tiles**
    only.
-2. **Endpoint is CRISPR phenotypic activity after PCA/TVN.** No PC, no MOTIVE,
-   no 11-task column-normalized mean. Process presets stay in the DL family
-   (`paper_dl_default` or a declared sweep); that is part of the measurement,
-   not an extra analysis.
+2. **Endpoint is CRISPR phenotypic activity after `simple_pca100`.** No PC, no
+   MOTIVE, no 11-task column-normalized mean. `paper_dl_default` and declared
+   DL sweeps stay comparators; they are part of the H6 measurement, not the
+   ranking readout.
 3. **No new CellProfiler, `cp_measure`, or MorphEM features from pixels.** New
    representations come only from `jumpbench embed --model timm`. Frozen
    comparators allowed: paper headline numbers and already-assembled CPG
@@ -61,14 +61,14 @@ What this study *can* vary, all inside timm + CRISPR PA + PCA/TVN:
 | H3 | Grid tiles lack cell inductive bias; tile size differs by model | partial | open |
 | H4 | Channel handling is inconsistent (concat vs stack + drops) | partial | open |
 | H5 | MorphEM / OpenPhenom train/test overlap with JUMP | observational | open |
-| H6 | Asymmetric post-processing grids and config selection | partial | open |
+| H6 | Asymmetric post-processing grids and config selection | partial | mixed |
 | H7 | Illumination correction and extractor mismatch | observational | open |
 | H8 | Table S3 ≠ released embedding driver | partial | open |
 | H9 | Tile remainder changes spatial coverage | in-scope | open |
 | H10 | Bag-of-channels concat makes embedding dim incomparable | partial | open |
 | H11 | Cell Count^ inherits extra CP sites | observational | open |
 | H12 | DINOv2 is a weak natural-image baseline vs convnets (EfficientNet) | in-scope | open |
-| H13 | Compression-robustness headline inherits flawed embedding evaluation | partial | open |
+| H13 | Compression-robustness headline inherits flawed embedding evaluation | partial | mixed |
 | H14 | Default 224 px cell windows are not cell-scale | in-scope | open |
 
 ---
@@ -306,7 +306,7 @@ processing ablation.
 CRISPR PA.” Not reachable: whether CP’s INT / independent-set prune caused
 the paper lead.
 
-**Status:** open
+**Status:** mixed
 
 **Decision:** 2026-09-15 — DL processing moves timm CRISPR PA. Wave R XL
 cell-96 Raw, Run1, same site embeddings: `paper_dl_default` mean NAP 0.038
@@ -314,6 +314,17 @@ cell-96 Raw, Run1, same site embeddings: `paper_dl_default` mean NAP 0.038
 (mean well-agg of site medians → PCA-100 → plate negcon z-score) mean NAP
 0.471 (`run1_xl_c96_raw_simple_pca100.json`). Not a campaign endpoint; H6
 stays `open` (no DL grid sweep, no CP-matched processing ablation).
+2026-09-16 — same Raw well profiles (site-intersected with MQ; 0 sites
+dropped): `simple_pca100` 0.453, `paper_dl_default` 0.038 (sweep rank
+393/420), `sweep_paper_dl_v11_lite` winner 0.420
+(`standardize`, `fit_on_controls=false`, prune, `tvn_epsilon=0.05`,
+PCA-170). Grid range 0.030–0.420 (median 0.208). RobustMAD fit-on-negcons
+(the paper DL default family) caps at 0.052; z-score not fit on negcons
+sits at 0.38–0.42. Reachable falsifier confirmed: the DL grid moves timm
+CRISPR PA by ≫ 0.03. Status `mixed` (CP INT / independent-set still
+untested). Do not score H13 Raw vs MQ on `paper_dl_default` alone.
+2026-09-17 — campaign readout is `simple_pca100` (`jumpbench process`
+default). `paper_dl_default` remains an H6 comparator.
 
 ---
 
@@ -538,7 +549,9 @@ until that pair is scored.
 `paper_dl_default`: `--crop cell_fixed --crop-size 96`,
 `tf_efficientnetv2_xl.in21k`, five stains, `--pool site`. Raw arm:
 `--image-source s3` (Orig TIFF, never written). MQ twin: `--image-source s3_mq`
-(JUMP-lite `jpegxl_lossy_mq.zarr`, never written). Material if \|ΔNAP\| ≥ 0.03.
+(JUMP-lite `jpegxl_lossy_mq.zarr`, never written). Aggregate both arms with
+`--keep-sites-from` the peer run so CPG holes skipped on MQ are dropped on
+Raw (same `site_key` set; no re-embed). Material if \|ΔNAP\| ≥ 0.03.
 If compression moves the score, pause MQ OFAT and ablate on Raw/stream only.
 Full CRISPR only after Run1. Not a Table 1 replication.
 
@@ -547,12 +560,26 @@ Full CRISPR only after Run1. Not a Table 1 replication.
 this card*, and later OFAT may stay on MQ. Paper Table 1 (four families,
 HQ/D20) stays unreplicated.
 
-**Status:** open
+**Status:** mixed
 
 **Decision:** 2026-09-11 — Table 1 Raw/HQ/MQ/D20 re-benchmark not in this
 study. 2026-09-14 — declared Raw-vs-MQ timm analogue is in campaign Wave R
 (not yet scored). 2026-09-15 — MQ twin streams JUMP-lite `jpegxl_lossy_mq.zarr`
-(`--image-source s3_mq`), not local `.jxl`. Status stays `open`.
+(`--image-source s3_mq`), not local `.jxl`. 2026-09-16 — Wave R scores Raw vs
+MQ on the intersection of embedded `site_key`s (`aggregate --keep-sites-from`)
+so MQ zarr holes are not extra coverage on Raw. Same day: do not treat
+`paper_dl_default` Raw 0.038 vs MQ 0.340 as H13; H6 shows that preset tanks
+Raw (0.038 vs `simple_pca100` 0.453). Hold the analogue until both arms
+use the same non-default process. Status stays `open`.
+2026-09-17 — campaign readout `simple_pca100`: Raw 0.453 vs MQ 0.332
+(Δ −0.120, material). Same well profiles, `sweep_paper_dl_v11_lite`
+independently selected: Raw winner 0.420 vs MQ winner 0.404 (Δ −0.017).
+Matched Raw-winner config on MQ: 0.393 (Δ −0.028). All 70 configs with
+Raw NAP ≥ 0.38 are worse on MQ (median Δ −0.025). `paper_dl_default`
+still flips (0.038 vs 0.116) because it destroys Raw. MQ loss is not an
+artifact of switching to `simple_pca100` alone, but that preset amplifies
+it past the 0.03 bar; the TVN-grid winners miss the bar. Status `mixed`.
+Stop further MQ OFAT on this card; later OFAT on Raw/stream.
 
 ---
 

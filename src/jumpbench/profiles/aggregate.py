@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Collection
 from pathlib import Path
 
 import polars as pl
+
+from jumpbench.provenance import now_iso, write_json
 
 FEATURE_PREFIXES = ("feat_",)
 META_PREFIX = "Metadata_"
@@ -100,10 +103,70 @@ def aggregate_sites_to_wells(
     return out
 
 
-def aggregate_path(input_path: Path, output_path: Path, how: str = "median") -> Path:
+def load_site_keys(path: Path) -> list[str]:
+    """Unique ``site_key`` values from a parquet, embed run dir, or text list."""
+    path = Path(path)
+    if path.is_dir():
+        parquet = path / "site_embeddings.parquet"
+        listing = path / "completed_sites.txt"
+        if parquet.exists():
+            path = parquet
+        elif listing.exists():
+            path = listing
+        else:
+            raise FileNotFoundError(
+                f"No site_embeddings.parquet or completed_sites.txt under {path}"
+            )
+    if path.suffix in {".parquet", ".pq"}:
+        table = pl.read_parquet(path)
+        if "site_key" not in table.columns:
+            raise ValueError(f"{path} has no site_key column")
+        return list(dict.fromkeys(table["site_key"].to_list()))
+    return [line for line in path.read_text(encoding="utf-8").splitlines() if line]
+
+
+def filter_to_site_keys(
+    df: pl.DataFrame, keys: Collection[str]
+) -> tuple[pl.DataFrame, dict[str, int]]:
+    """Keep rows whose ``site_key`` is in ``keys`` (Raw vs MQ hole alignment)."""
+    if "site_key" not in df.columns:
+        raise ValueError("Need site_key to restrict sites")
+    keep = list(dict.fromkeys(keys))
+    before = df.select("site_key").n_unique()
+    out = df.filter(pl.col("site_key").is_in(keep))
+    after = out.select("site_key").n_unique()
+    if after == 0:
+        raise ValueError("No sites left after intersecting site_key")
+    return out, {
+        "n_sites_before": int(before),
+        "n_sites_after": int(after),
+        "n_sites_dropped": int(before - after),
+        "n_keep_keys": len(keep),
+    }
+
+
+def aggregate_path(
+    input_path: Path,
+    output_path: Path,
+    how: str = "median",
+    keep_sites_from: Path | None = None,
+) -> Path:
     df = pl.read_parquet(input_path)
+    filter_stats: dict[str, int] | None = None
+    if keep_sites_from is not None:
+        df, filter_stats = filter_to_site_keys(df, load_site_keys(Path(keep_sites_from)))
     wells = aggregate_sites_to_wells(df, how=how)
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     wells.write_parquet(output_path)
+    if filter_stats is not None:
+        write_json(
+            output_path.with_name(output_path.name + ".site_filter.json"),
+            {
+                "created_at": now_iso(),
+                "input": str(input_path),
+                "keep_sites_from": str(keep_sites_from),
+                **filter_stats,
+            },
+        )
     return output_path
