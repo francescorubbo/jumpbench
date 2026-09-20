@@ -173,7 +173,9 @@ def plot_waterfall(
         labels.append(FAMILY_LABEL[key])
     ax_fit.set_xticks(ticks)
     ax_fit.set_xticklabels(labels, fontsize=8)
-    ax_fit.set_xlabel("Configs sorted by Raw NAP (high → low). Prune / TVN ε / PCA rank jitter inside blocks.")
+    ax_fit.set_xlabel(
+        "Configs sorted by Raw NAP (high → low). Prune / TVN ε / PCA rank jitter inside blocks."
+    )
 
     strip_handles = [
         Patch(facecolor=NORM_COLORS["standardize"], label="z-score"),
