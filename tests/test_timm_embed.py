@@ -70,7 +70,7 @@ def test_timm_resnet_bag_of_channels_keeps_native_size():
     assert backend.resize_to is None
     tiles = np.random.default_rng(0).random((3, 2, 32, 40)).astype(np.float32)
     out = backend.embed_tiles(tiles)
-    assert out.shape == (3, 2 * int(backend.model.num_features))
+    assert out.shape == (3, 2 * int(backend.model.num_features))  # type: ignore
     assert np.isfinite(out).all()
 
 
@@ -97,7 +97,7 @@ def test_timm_vit_resizes_via_embed_tiles():
     image = rng.integers(0, 1024, size=(5, 48, 48)).astype(np.uint16)
     card["crop_size"] = 48
     feats, extra, _ = embed_site(image, card, backend)
-    assert feats.shape == (1, int(backend.model.num_features))
+    assert feats.shape == (1, int(backend.model.num_features))  # type: ignore
     assert extra["tile_y"].shape[0] == 1
     assert np.isfinite(feats).all()
 

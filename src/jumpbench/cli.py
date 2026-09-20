@@ -249,9 +249,7 @@ def cmd_embed(args: argparse.Namespace) -> int:
 
 def cmd_aggregate(args: argparse.Namespace) -> int:
     keep = Path(args.keep_sites_from) if args.keep_sites_from else None
-    path = aggregate_path(
-        Path(args.input), Path(args.output), how=args.how, keep_sites_from=keep
-    )
+    path = aggregate_path(Path(args.input), Path(args.output), how=args.how, keep_sites_from=keep)
     if keep is not None:
         sidecar = path.with_name(path.name + ".site_filter.json")
         stats = json.loads(sidecar.read_text())
