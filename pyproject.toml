@@ -19,6 +19,7 @@ dependencies = [
     "tqdm>=4.66",
     "tifffile>=2024.2",
     "imagecodecs>=2024.1",
+    "matplotlib>=3.11.2",
 ]
 
 [project.optional-dependencies]
@@ -72,7 +73,3 @@ ignore = ["E501"]  # formatter already wraps code; E501 only flags long strings/
 
 [tool.ty.environment]
 python-version = "3.11"
-
-[tool.ty.analysis]
-# Torch / transformers live in the optional `embed` extra, not the default env.
-allowed-unresolved-imports = ["torch", "torch.**", "transformers", "transformers.**", "timm", "timm.**"]
