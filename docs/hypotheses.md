@@ -56,9 +56,9 @@ What this study *can* vary, all inside timm + CRISPR PA + PCA/TVN:
 
 | ID | Claim (short) | Testability | Status |
 |---|---|---|---|
-| H1 | CP pathway conflates segmentation, features, and post-processing | partial | open |
+| H1 | CP pathway conflates segmentation, features, and post-processing | partial | mixed |
 | H2 | 4-site embeddings vs 6–9-site CellProfiler | partial | open |
-| H3 | Grid tiles lack cell inductive bias; tile size differs by model | partial | open |
+| H3 | Grid tiles lack cell inductive bias; tile size differs by model | partial | mixed |
 | H4 | Channel handling is inconsistent (concat vs stack + drops) | partial | open |
 | H5 | MorphEM / OpenPhenom train/test overlap with JUMP | observational | open |
 | H6 | Asymmetric post-processing grids and config selection | partial | mixed |
@@ -67,7 +67,7 @@ What this study *can* vary, all inside timm + CRISPR PA + PCA/TVN:
 | H9 | Tile remainder changes spatial coverage | in-scope | open |
 | H10 | Bag-of-channels concat makes embedding dim incomparable | partial | open |
 | H11 | Cell Count^ inherits extra CP sites | observational | open |
-| H12 | DINOv2 is a weak natural-image baseline vs convnets (EfficientNet) | in-scope | open |
+| H12 | DINOv2 is a weak natural-image baseline vs convnets (EfficientNet) | in-scope | mixed |
 | H13 | Compression-robustness headline inherits flawed embedding evaluation | partial | mixed |
 | H14 | Default 224 px cell windows are not cell-scale | in-scope | open |
 
@@ -117,9 +117,14 @@ the 4-site set. Then the “missing cell inductive bias” arm is not supported
 *for timm*. The CP-extractor and CP-only-processing arms stay open.
 Not reachable here: a same-pixel `cp_measure` vs embedding comparison.
 
-**Status:** open
+**Status:** mixed
 
-**Decision:** 
+**Decision:** 2026-09-18 — timm XL, `simple_pca100`, same 35,398 4-site
+keys: `cell_fixed` 96 NAP 0.453 vs `grid` 224 NAP 0.403 (Δ +0.050, material)
+on Raw; MQ 0.332 vs 0.329 (Δ +0.003, not material). `cell_bbox` not run.
+CP feature/processing arms stay untested. Confounded with H14 (96 px cell
+window vs 224 px tiles). Reachable “cell crops do not beat grid *for timm*”
+is not supported on Raw XL; do not treat this as CELL@224 vs grid.
 
 ---
 
@@ -191,9 +196,11 @@ size is not causal *for timm*; (b) cell crops do not beat grid on 4-site timm
 → cell inductive bias is not causal *for timm*. Paper-model tile-size
 confounding stays observational.
 
-**Status:** open
+**Status:** mixed
 
-**Decision:**
+**Decision:** 2026-09-18 — (b) same as H1: XL cell-96 beats grid-224 on Raw
+(Δ +0.050), not on MQ. Tile-size sweep (a) not run. Remainder/H9 still
+open. Paper-model tile-size confounding stays observational.
 
 ---
 
@@ -505,9 +512,14 @@ timm backbone on CRISPR PA. Then “conv nets are better at morphology texture�
 is not supported *under this protocol*. Not reachable: re-ranking paper
 Figure 5’s stacked DINOv2 row.
 
-**Status:** open
+**Status:** mixed
 
-**Decision:**
+**Decision:** 2026-09-18 — analogue under `simple_pca100` (not the planned
+`paper_dl_default`): grid 224, five stains, same 35,398 sites. XL 0.403 vs
+timm ViT-S DINOv2 0.397 on Raw (Δ +0.006); MQ 0.329 vs 0.333 (Δ −0.004).
+Neither meets 0.03. “Conv nets beat DINOv2-class ViT *for morphology*” is
+not supported on this grid card. B0 vs XL vs ViT on `paper_dl_default` still
+unrun. Not a re-rank of paper stacked DINOv2.
 
 ---
 
@@ -580,6 +592,10 @@ still flips (0.038 vs 0.116) because it destroys Raw. MQ loss is not an
 artifact of switching to `simple_pca100` alone, but that preset amplifies
 it past the 0.03 bar; the TVN-grid winners miss the bar. Status `mixed`.
 Stop further MQ OFAT on this card; later OFAT on Raw/stream.
+2026-09-18 — same `simple_pca100` analogue on grid 224, same 35,398 sites:
+XL Raw 0.403 vs MQ 0.329 (Δ −0.073); ViT-S Raw 0.397 vs MQ 0.333 (Δ −0.063).
+Both material. MQ loss is not unique to cell-96 XL; it is smaller than the
+cell-crop Δ −0.120. Still not Table 1. Status stays `mixed`.
 
 ---
 

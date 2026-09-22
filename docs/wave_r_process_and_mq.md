@@ -75,6 +75,86 @@ Do **not** use an older `data/results/campaign/run1_xl_c96_mq.json` (NAP
 0.340). That file is `paper_dl_default` from before the site-intersected
 profiles. The matched shard on these profiles is 0.116.
 
+### 4. Grid 224 XL / ViT (same sites, `simple_pca100`)
+
+2026-09-18. Cell and grid arms, aggregated with `--keep-sites-from` Wave R
+cell-96 XL Raw (35,398 keys; 336 CRISPR perturbations).
+
+Consolidated `simple_pca100` (PCA-100 → per-plate negcon z-score), Run1
+CRISPR, 336 perturbations, all site-intersected to the Wave R cell-96 XL
+Raw keys:
+
+| Crop (window) | Architecture | Raw mean | Raw median | MQ mean | MQ median | Δ mean (MQ−Raw) |
+|---|---|---:|---:|---:|---:|---:|
+| `cell_fixed` 96 | EfficientNetV2-XL | 0.453 | 0.398 | 0.332 | 0.193 | **−0.120** |
+| `cell_fixed` 224 | EfficientNetV2-XL | 0.425 | 0.298 | — | — | — |
+| `grid` 96 | EfficientNetV2-XL | 0.399 | 0.296 | — | — | — |
+| `grid` 224 | EfficientNetV2-XL | 0.403 | 0.283 | 0.329 | 0.147 | **−0.073** |
+| `grid` 224 | ViT-S DINOv2 (timm) | 0.397 | 0.294 | 0.333 | 0.193 | **−0.063** |
+
+JSON: `data/results/campaign/{run1_xl_c96,timm_run1_xl_c224,timm_run1_xl_g96,timm_run1_xl_g224,timm_run1_vit_g224}_{raw,mq}_simple_pca100.json`.
+
+| Contrast | Δ mean NAP | Material (≥0.03)? |
+|---|---:|---|
+| XL cell-96 vs grid-224, Raw | +0.050 | yes |
+| XL cell-96 vs grid-224, MQ | +0.003 | no |
+| XL vs ViT, grid-224 Raw | +0.006 | no |
+| XL vs ViT, grid-224 MQ | −0.004 | no |
+| XL grid Raw vs MQ | −0.073 | yes |
+| ViT grid Raw vs MQ | −0.063 | yes |
+
+Cell vs grid is confounded with window size (H14). H12 analogue is
+`simple_pca100`, not `paper_dl_default`.
+
+### 5. Grid-224 DL sweep: MQ direction depends on architecture (H13)
+
+2026-09-21. Same `sweep_paper_dl_v11_lite` grid (420 configs) run on the
+grid-224 Raw/MQ profiles, site-intersected to the Wave R cell-96 Raw keys
+(35,398). Raw and MQ profiles hold the same `site_key` set, so wells are
+4-site on both arms. `simple_pca100` MQ is worse on both cards, but the DL
+grid does not agree with it for XL.
+
+| Crop | Architecture | Raw max | MQ max | Δ mean (MQ−Raw) | Median Δ | Configs MQ>Raw | `simple_pca100` Raw → MQ |
+|---|---|---:|---:|---:|---:|---:|---|
+| `grid` 224 | EfficientNetV2-XL | 0.418 | 0.440 | **+0.035** | +0.024 | 415/420 | 0.403 → 0.329 (−0.073) |
+| `grid` 224 | ViT-S DINOv2 | 0.452 | 0.440 | **−0.003** | −0.006 | 187/420 | 0.397 → 0.333 (−0.063) |
+
+- **ViT-S DINOv2** behaves like cell-96 XL: the `simple_pca100` drop is
+  material (−0.063), the DL grid is near-neutral (only 1 config with
+  \|Δ\| ≥ 0.03), and the families that carry signal (`robustmad` /
+  `standardize`, fit-on-all-wells) are uniformly MQ < Raw.
+- **EfficientNetV2-XL** reverses: MQ ≥ Raw on 415/420 configs (mean
+  +0.035), largest in `robustmad` fit-on-controls (+0.089). Yet its
+  `simple_pca100` still loses on MQ (−0.073). Treat this arm as
+  **unresolved**: the sign depends on process, and the families that
+  inflate MQ (`robustmad` fit-on-controls) are exactly the ones that
+  already sign-flipped on cell-96.
+
+Family means (Δ = MQ − Raw; `fitctrl` = `fit_on_controls`):
+
+| Architecture | `standardize`/all | `robustmad`/all | `standardize`/negcons | `none` | `robustmad`/negcons |
+|---|---:|---:|---:|---:|---:|
+| XL grid-224 | +0.018 | +0.039 | +0.017 | +0.023 | +0.089 |
+| ViT grid-224 | −0.014 | −0.019 | +0.006 | +0.012 | −0.016 |
+
+Raw sweep winner / MQ sweep winner:
+
+- XL: `standardize_fitctrl-false_prune-true_eps-0.05_pca-196`
+  (Raw 0.418 / MQ 0.426); MQ winner
+  `standardize_fitctrl-false_prune-false_eps-0.1_pca-304` (Raw 0.413 / MQ 0.440).
+- ViT: `robustmad_fitctrl-false_prune-true_eps-0.05_pca-304`
+  (Raw 0.452 / MQ 0.437); MQ winner
+  `robustmad_fitctrl-false_prune-false_eps-0.05_pca-304` (Raw 0.450 / MQ 0.440).
+
+![DL process sweep ranked by Raw NAP, MQ overlaid, simple_pca100 dashed — XL grid-224](figures/wave_r_sweep_waterfall_g224.png)
+
+![DL process sweep ranked by Raw NAP, MQ overlaid, simple_pca100 dashed — ViT-S DINOv2 grid-224](figures/wave_r_sweep_waterfall_vit_g224.png)
+
+420 configs sorted by Raw CRISPR PA mean NAP; MQ is the same process config
+(not re-ranked). Dashed lines are `simple_pca100`. Generate with the
+`--raw/--mq/--simple-raw/--simple-mq/--title` block in
+[Reproduce → Waterfall figure](#waterfall-figure).
+
 ### 3. The MQ drop is not an artifact of switching process
 
 Independently selected TVN winners miss the 0.03 bar (Δ −0.017). Matched
@@ -111,6 +191,14 @@ data/results/campaign/run1_xl_c96_raw_simple_pca100.json
 data/results/campaign/run1_xl_c96_mq_simple_pca100.json
 data/results/campaign/timm_run1_xl_c96_raw_dl_sweep/summary.csv
 data/results/campaign/timm_run1_xl_c96_mq_dl_sweep/summary.csv
+data/profiles/timm_run1_xl_g224_{raw,mq}.parquet
+data/profiles/timm_run1_vit_g224_{raw,mq}.parquet
+data/results/campaign/timm_run1_xl_g224_{raw,mq}_simple_pca100.json
+data/results/campaign/timm_run1_vit_g224_{raw,mq}_simple_pca100.json
+data/results/campaign/timm_run1_xl_c224_raw_simple_pca100.json
+data/results/campaign/timm_run1_xl_g96_raw_simple_pca100.json
+data/results/campaign/timm_run1_xl_g224_{raw,mq}_dl_sweep/summary.csv
+data/results/campaign/timm_run1_vit_g224_{raw,mq}_dl_sweep/summary.csv
 ```
 
 ## Reproduce
@@ -237,7 +325,28 @@ That shard already exists as
 ### Waterfall figure
 
 ```bash
+# cell-96 XL (defaults)
 python scripts/plot_sweep_waterfall.py
 # docs/figures/wave_r_sweep_waterfall.png
 # docs/figures/wave_r_sweep_waterfall.svg
+
+# grid-224 XL
+python scripts/plot_sweep_waterfall.py \
+  --raw  data/results/campaign/timm_run1_xl_g224_raw_dl_sweep/summary.csv \
+  --mq   data/results/campaign/timm_run1_xl_g224_mq_dl_sweep/summary.csv \
+  --simple-raw data/results/campaign/timm_run1_xl_g224_raw_simple_pca100.json \
+  --simple-mq  data/results/campaign/timm_run1_xl_g224_mq_simple_pca100.json \
+  --png docs/figures/wave_r_sweep_waterfall_g224.png \
+  --svg docs/figures/wave_r_sweep_waterfall_g224.svg \
+  --title "DL process sweep, ranked by Raw NAP (Run1 XL grid-224, n=420)"
+
+# grid-224 ViT-S DINOv2
+python scripts/plot_sweep_waterfall.py \
+  --raw  data/results/campaign/timm_run1_vit_g224_raw_dl_sweep/summary.csv \
+  --mq   data/results/campaign/timm_run1_vit_g224_mq_dl_sweep/summary.csv \
+  --simple-raw data/results/campaign/timm_run1_vit_g224_raw_simple_pca100.json \
+  --simple-mq  data/results/campaign/timm_run1_vit_g224_mq_simple_pca100.json \
+  --png docs/figures/wave_r_sweep_waterfall_vit_g224.png \
+  --svg docs/figures/wave_r_sweep_waterfall_vit_g224.svg \
+  --title "DL process sweep, ranked by Raw NAP (Run1 ViT-S DINOv2 grid-224, n=420)"
 ```
