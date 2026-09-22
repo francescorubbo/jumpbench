@@ -106,6 +106,8 @@ def plot_waterfall(
     simple_mq: float,
     dest_png: Path,
     dest_svg: Path,
+    title: str = "DL process sweep, ranked by Raw NAP (Run1 XL cell-96, n=420)",
+    ylim: tuple[float, float] = (-0.05, 0.52),
 ) -> None:
     n = table.height
     x = np.arange(n)
@@ -130,11 +132,11 @@ def plot_waterfall(
     ax.axhline(simple_raw, color=SIMPLE_RAW, ls="--", lw=1.3, label="simple_pca100 Raw")
     ax.axhline(simple_mq, color=SIMPLE_MQ, ls="--", lw=1.3, label="simple_pca100 MQ")
     ax.set_ylabel("CRISPR PA mean NAP")
-    ax.set_ylim(-0.05, 0.52)
+    ax.set_ylim(*ylim)
     ax.set_xlim(0, n)
     ax.legend(loc="upper right", frameon=False, fontsize=8)
     ax.axhline(0.0, color="0.7", lw=0.6)
-    ax.set_title("DL process sweep, ranked by Raw NAP (Run1 XL cell-96, n=420)")
+    ax.set_title(title)
 
     long_runs = [(k, a, b) for k, a, b in _contiguous_runs(families) if (b - a + 1) >= 20]
     for _key, a, b in long_runs:
@@ -221,6 +223,19 @@ def main(argv: list[str] | None = None) -> int:
     )
     p.add_argument("--png", default="docs/figures/wave_r_sweep_waterfall.png")
     p.add_argument("--svg", default="docs/figures/wave_r_sweep_waterfall.svg")
+    p.add_argument(
+        "--title",
+        default="DL process sweep, ranked by Raw NAP (Run1 XL cell-96, n=420)",
+        help="Figure title (e.g. swap cell-96 for grid-224).",
+    )
+    p.add_argument(
+        "--ylim",
+        type=float,
+        nargs=2,
+        metavar=("YMIN", "YMAX"),
+        default=(-0.05, 0.52),
+        help="Y-axis limits (default: -0.05 0.52).",
+    )
     args = p.parse_args(argv)
     table = join_sweeps(resolve(args.raw, root), resolve(args.mq, root))
     if table.height != 420:
@@ -231,6 +246,8 @@ def main(argv: list[str] | None = None) -> int:
         simple_mq=_simple_pca100(resolve(args.simple_mq, root)),
         dest_png=resolve(args.png, root),
         dest_svg=resolve(args.svg, root),
+        title=args.title,
+        ylim=tuple(args.ylim),
     )
     print(resolve(args.png, root))
     print(resolve(args.svg, root))
