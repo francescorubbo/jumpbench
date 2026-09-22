@@ -75,6 +75,33 @@ Do **not** use an older `data/results/campaign/run1_xl_c96_mq.json` (NAP
 0.340). That file is `paper_dl_default` from before the site-intersected
 profiles. The matched shard on these profiles is 0.116.
 
+### 4. Grid 224 XL / ViT (same sites, `simple_pca100`)
+
+2026-09-18. Four grid arms, aggregated with `--keep-sites-from` Wave R
+cell-96 XL Raw (35,398 keys; 336 CRISPR perturbations).
+
+| Crop | Architecture | Source | Mean NAP | Median NAP |
+|---|---|---|---:|---:|
+| `cell_fixed` 96 | EfficientNetV2-XL | Raw | 0.453 | 0.398 |
+| `cell_fixed` 96 | EfficientNetV2-XL | MQ | 0.332 | 0.193 |
+| `grid` 224 | EfficientNetV2-XL | Raw | 0.403 | 0.283 |
+| `grid` 224 | EfficientNetV2-XL | MQ | 0.329 | 0.147 |
+| `grid` 224 | ViT-S DINOv2 (timm) | Raw | 0.397 | 0.294 |
+| `grid` 224 | ViT-S DINOv2 (timm) | MQ | 0.333 | 0.193 |
+
+| Contrast | Δ mean NAP | Material (≥0.03)? |
+|---|---:|---|
+| XL cell-96 vs grid-224, Raw | +0.050 | yes |
+| XL cell-96 vs grid-224, MQ | +0.003 | no |
+| XL vs ViT, grid-224 Raw | +0.006 | no |
+| XL vs ViT, grid-224 MQ | −0.004 | no |
+| XL grid Raw vs MQ | −0.073 | yes |
+| ViT grid Raw vs MQ | −0.063 | yes |
+
+Cell vs grid is confounded with window size (H14). H12 analogue is
+`simple_pca100`, not `paper_dl_default`. JSON:
+`data/results/campaign/timm_run1_{xl,vit}_g224_{raw,mq}_simple_pca100.json`.
+
 ### 3. The MQ drop is not an artifact of switching process
 
 Independently selected TVN winners miss the 0.03 bar (Δ −0.017). Matched

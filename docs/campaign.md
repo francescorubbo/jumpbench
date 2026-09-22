@@ -44,6 +44,10 @@ data/embeddings/timm/run1/grid_jump_lite_224_efficientnet_b0_5ch/
 data/embeddings/timm/run1/grid_jump_lite_224_efficientnet_b0_dinov2_as_run/
 data/embeddings/timm/run1/cell_fixed_jump_lite_96_efficientnetv2_xl_5ch_raw/
 data/embeddings/timm/run1/cell_fixed_jump_lite_96_efficientnetv2_xl_5ch_jpegxl_mq/
+data/embeddings/timm/run1/grid_jump_lite_224_efficientnetv2_xl_5ch_raw/
+data/embeddings/timm/run1/grid_jump_lite_224_efficientnetv2_xl_5ch_jpegxl_mq/
+data/embeddings/timm/run1/grid_jump_lite_224_vit_small_dinov2_5ch_raw/
+data/embeddings/timm/run1/grid_jump_lite_224_vit_small_dinov2_5ch_jpegxl_mq/
 data/embeddings/timm/crispr/grid_jump_lite_224_efficientnet_b0_5ch/
 ```
 
@@ -193,6 +197,44 @@ jumpbench sweep gather --results-dir data/results/campaign/timm_run1_xl_c96_mq_d
 
 The DL Raw grid spans 0.030–0.420 (420 configs). RobustMAD fit on negcons never
 exceeds 0.052 on Raw. Sweep `--jobs` > 1 pins one BLAS thread per process.
+
+## Wave R.5 — Grid 224 XL / ViT, Raw and MQ (H1, H3, H12, H13)
+
+Same Run1 CRISPR 4-site keys as Wave R cell-96 XL (35,398 `site_key`s via
+`--keep-sites-from` that run). Grid embeddings have no Cellpose skip, so
+the filter drops 1,726 Raw / 1,607 MQ extra sites. `simple_pca100` only
+(no DL sweep). Full table: [wave_r_process_and_mq.md](wave_r_process_and_mq.md).
+
+| Crop | Model | Raw NAP | MQ NAP | Δ MQ−Raw |
+|---|---|---:|---:|---:|
+| `cell_fixed` 96 | EfficientNetV2-XL | 0.453 | 0.332 | **−0.120** |
+| `grid` 224 | EfficientNetV2-XL | 0.403 | 0.329 | **−0.073** |
+| `grid` 224 | ViT-S DINOv2 (timm) | 0.397 | 0.333 | **−0.063** |
+
+Material movers on Run1 (\|ΔNAP\| ≥ 0.03): cell-96 vs grid-224 on XL **Raw**
+(+0.050); Raw vs MQ on every card. XL vs ViT on grid is **not** material
+(Raw Δ +0.006). Cell vs grid on **MQ** is not material (Δ +0.003). Confounded
+with H14 (`crop_size` 96 vs `tile_size` 224). H12 here is `simple_pca100`,
+not the planned `paper_dl_default`.
+
+```bash
+CELL=data/embeddings/timm/run1/cell_fixed_jump_lite_96_efficientnetv2_xl_5ch_raw
+EMB=data/embeddings/timm/run1
+
+# example: XL grid Raw; same block for xl_g224_mq, vit_g224_raw, vit_g224_mq
+jumpbench aggregate \
+  --input $EMB/grid_jump_lite_224_efficientnetv2_xl_5ch_raw/site_embeddings.parquet \
+  --keep-sites-from $CELL \
+  --output data/profiles/timm_run1_xl_g224_raw.parquet
+jumpbench process --preset simple_pca100 \
+  --input data/profiles/timm_run1_xl_g224_raw.parquet \
+  --output data/processed/timm_run1_xl_g224_raw_simple_pca100.parquet
+jumpbench evaluate --tasks pa --subset crispr \
+  --input data/processed/timm_run1_xl_g224_raw_simple_pca100.parquet \
+  --output data/results/campaign/timm_run1_xl_g224_raw_simple_pca100.json
+```
+
+Embed recipe: `scripts/run_grid_embeds.sh` (tmux `jumpbench-grid`).
 
 Fallback if streaming is flaky **and** ≥0.5 TiB is free (separate root so
 `.jxl` cannot win):
